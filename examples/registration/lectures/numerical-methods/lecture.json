@@ -1,0 +1,10 @@
+{
+  "title": "Numerical Methods — example term",
+  "organization": "replace-with-teaching-org",
+  "staffTeam": "teaching-staff",
+  "registrationKey": "replace-with-a-random-lecture-key",
+  "students": [
+    {"id": "example-student-1", "name": "Example Student One"},
+    {"id": "example-student-2", "name": "Example Student Two"}
+  ]
+}

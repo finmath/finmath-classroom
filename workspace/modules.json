@@ -1,0 +1,22 @@
+{
+  "modules": [
+    "numerical-methods-lecture",
+    "computational-finance-lecture",
+    "numerical-methods-controlvariate-exercise",
+    "numerical-methods-summation-exercise",
+    "numerical-methods-quadraticequation-exercise",
+    "numerical-methods-montecarlointegration-exercise",
+    "numerical-methods-weightedmontecarlo-exercise",
+    "numerical-methods-inhomogeneousexponentialrandomnumbergenerator-exercise",
+    "numerical-methods-localvolatility-exercise",
+    "numerical-methods-bermudanoption-exercise",
+    "computational-finance-algorithmicdifferentiation-montecarlo-exercise",
+    "computational-finance-algorithmicdifferentiation-indicator-exercise",
+    "computational-finance-algorithmicdifferentiation-randomvariable-exercise",
+    "computational-finance-simple-crosscurrency-model",
+    "computational-finance-dice-model-calibration",
+    "computational-finance-interest-rate-swap-valuation-hedging",
+    "computational-finance-discountfactor-interpolation",
+    "computational-finance-termstructuremodelplugins-project"
+  ]
+}

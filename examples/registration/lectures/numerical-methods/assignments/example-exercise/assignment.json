@@ -1,0 +1,9 @@
+{
+  "title": "Example exercise",
+  "template": "https://github.com/replace-with-teaching-org/replace-with-template",
+  "repositoryPrefix": "example-term-exercise",
+  "branch": "main",
+  "registrationKey": "replace-with-a-random-assignment-key",
+  "moodleCourseId": "replace-with-course-context-id",
+  "moodleResourceId": "replace-with-activity-resource-link-id"
+}
