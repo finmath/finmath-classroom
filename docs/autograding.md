@@ -85,9 +85,10 @@ review; the action does not execute legacy `run` strings.
 ## 2. Replace the grading job
 
 Publish this repository's action, Java sources and scripts together to
-`https://github.com/finmath/finmath-classroom`. Replace `PUBLISHED_COMMIT_SHA` below
-with the full reviewed commit SHA. A local commit must be pushed before GitHub can
-resolve it. This is a **composite action used inside `steps`**, not a reusable
+`https://github.com/finmath/finmath-classroom`. The example pins the grader to
+commit `1db382921c5d48b38bbcde50bc113dbee75aad46`; push that commit before GitHub
+can resolve it, then publish the assignment workflow changes. This is a
+**composite action used inside `steps`**, not a reusable
 workflow called with a job-level `uses` or a path to `.github/workflows`.
 
 ```yaml
@@ -108,7 +109,7 @@ autograding:
         java-version: '17'
         cache: maven
     - name: Test and upload feedback
-      uses: finmath/finmath-classroom@PUBLISHED_COMMIT_SHA
+      uses: finmath/finmath-classroom@1db382921c5d48b38bbcde50bc113dbee75aad46
       with:
         rubric: .github/classroom/autograding.json
         timeout-minutes: '10'
@@ -137,7 +138,7 @@ For a POM without Checkstyle configuration, set the example's checkstyle job
 condition to `if: ${{ false }}`; the summary then shows it as skipped.
 
 The same example can be installed across templates sharing the Maven layout,
-Java version and timeout budget. Set `PUBLISHED_COMMIT_SHA` once for
+Java version and timeout budget. Use the same reviewed grader commit for
 the common workflow, then migrate each assignment's `autograding.json` and retain
 its tests. The workflow-level `JAVA_VERSION` defaults to 17; adjust it for projects
 requiring another version. Retain an intentional total test timeout and allow
