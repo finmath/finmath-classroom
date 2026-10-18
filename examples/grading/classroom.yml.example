@@ -1,5 +1,5 @@
 # Install in an assignment repository as .github/workflows/classroom.yml.
-# Publish the action first; replace OWNER and PUBLISHED_COMMIT_SHA below.
+# Publish finmath/finmath-classroom first; pin the reviewed grader commit below.
 name: Assignment checks and feedback
 on:
   push:
@@ -49,6 +49,8 @@ jobs:
     name: 🔍 Checkstyle
     runs-on: ubuntu-24.04
     needs: build
+    # Set false when the assignment POM has no Checkstyle configuration.
+    if: ${{ true }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -79,7 +81,7 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
       - name: Test and upload feedback
-        uses: OWNER/finmath-classroom@PUBLISHED_COMMIT_SHA
+        uses: finmath/finmath-classroom@PUBLISHED_COMMIT_SHA
         with:
           rubric: .github/classroom/autograding.json
           timeout-minutes: '10'

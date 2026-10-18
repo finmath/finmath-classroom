@@ -87,6 +87,7 @@ grade return are not implemented.
 | 2026-10-18: documentation | Replaced the migration handover and agent file with development notes and a roadmap, including the proposed shared feedback workflow and collection design. |
 | 2026-10-18: feedback integration | Added a shared Maven/JUnit action, a versioned result envelope and schema, method-selection/report CLI commands and a migration guide. Publication and the live Actions pilot remain pending. |
 | 2026-10-18: full assignment workflow | Restored the example's build, advisory JavaDoc/checkstyle and summary jobs; added ordinary pull-request feedback with explicit merge-commit identity. |
+| 2026-10-18: template migration | Added an explicit all-or-nothing Maven suite rubric, preserving existing weighted-method results; prepared pinned action references for assignment templates. |
 
 An instructor-account registration pilot was reported working. A complete learner
 pilot, the intended Moodle installation and public hosting still need validation.
@@ -145,3 +146,11 @@ changed in this follow-up; Maven verification above was not rerun.
 These checks do not establish live Actions/GitHub/Moodle compatibility or validate
 the pending submission and final-grading features. Keep implemented capabilities,
 proposals and executed verification distinct.
+
+Template migration verification on 2026-10-18: `mvn -B -ntp verify` passed all
+209 tests. The shell integration checks passed 17 scenarios on Java 17, including
+whole-suite selection, full/zero points and unavailable reports. The result schema
+validated the existing method example and Java-produced suite artifacts for all
+five result statuses. YAML and job dependency checks passed for the common example
+and 14 prepared template workflows. Assignment builds and live Actions runs were
+not executed; publication and the live pilot remain pending.

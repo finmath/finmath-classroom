@@ -31,8 +31,12 @@ cat > "$suite/bin/mvn" <<'EOF'
 set -euo pipefail
 [[ "$JAVA_HOME" == assignment-java-home ]]
 [[ ! -e target/surefire-reports ]]
-[[ "$#" == 6 && "$1" == -B && "$2" == -ntp && "$3" == -Dcheckstyle.skip=true ]]
-[[ "$4" == '-Dtest=example.Test#testOne,example.Test#testTwo' && "$5" == clean && "$6" == test ]]
+[[ "$1" == -B && "$2" == -ntp && "$3" == -Dcheckstyle.skip=true ]]
+if [[ "$FAKE_SUITE" == yes ]]; then
+  [[ "$#" == 5 && "$4" == clean && "$5" == test ]]
+else
+  [[ "$#" == 6 && "$4" == '-Dtest=example.Test#testOne,example.Test#testTwo' && "$5" == clean && "$6" == test ]]
+fi
 printf 'Maven invocation\n' >> "$FAKE_MAVEN_LOG"
 # Both metadata and the rubric snapshot must exist before Maven starts.
 for context in "$RUNNER_TEMP"/classroom-feedback.*/context.json; do
@@ -82,7 +86,7 @@ prepare_case() {
   export GITHUB_WORKFLOW_REF=example/assignment/.github/workflows/feedback.yml@refs/heads/main
   export GITHUB_WORKFLOW_SHA=89abcdef0123456789abcdef0123456789abcdef
   export INPUT_WORKING_DIRECTORY=module INPUT_RUBRIC='rubric config.json' INPUT_TIMEOUT_MINUTES=7
-  export FAKE_TEST_STATE=pass FAKE_TEST_EXIT=0
+  export FAKE_TEST_STATE=pass FAKE_TEST_EXIT=0 FAKE_SUITE=no
   unset FAKE_GIT_SHA FAKE_TIMEOUT_EXIT FAKE_CHANGE_RUBRIC
   mkdir -p "$GITHUB_WORKSPACE/module/target/surefire-reports" "$RUNNER_TEMP"
   : > "$GITHUB_OUTPUT"
@@ -173,6 +177,23 @@ export FAKE_TEST_EXIT=1
 run_feedback
 check_result error null 2 1
 
+for suite_case in passed failed missing; do
+  prepare_case "suite_$suite_case"
+  export FAKE_SUITE=yes
+  printf '{"suite":{"points":5}}\n' > "$GITHUB_WORKSPACE/module/$INPUT_RUBRIC"
+  case "$suite_case" in
+    passed) export FAKE_CHANGE_RUBRIC=yes ;;
+    failed) export FAKE_TEST_STATE=partial FAKE_TEST_EXIT=1 ;;
+    missing) export FAKE_TEST_STATE=missing ;;
+  esac
+  run_feedback
+  case "$suite_case" in
+    passed) check_result passed 5 0 0 ;;
+    failed) check_result failed 0 1 1 ;;
+    missing) check_result incomplete null 1 1 ;;
+  esac
+done
+
 for invalid in rubric commit event timeout path target_symlink; do
   prepare_case "invalid_$invalid"
   case "$invalid" in
@@ -190,4 +211,4 @@ for invalid in rubric commit event timeout path target_symlink; do
   [[ "$script_exit" -ne 0 && ! -s "$GITHUB_OUTPUT" && ! -e "$FAKE_MAVEN_LOG" ]]
 done
 [[ -s "$suite/preserved-target/surefire-reports/TEST-stale.xml" ]]
-printf 'Autograding integration checks passed (14 scenarios, no student code executed).\n'
+printf 'Autograding integration checks passed (17 scenarios, no student code executed).\n'

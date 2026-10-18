@@ -168,6 +168,35 @@ class FeedbackArtifactTest {
 		assertEquals(2, FeedbackArtifact.exitCode(result));
 	}
 
+	@Test void testSuiteArtifactsPreserveAllOrNothingPointsAndSummary() throws IOException {
+		Files.writeString(rubric, "{\"suite\":{\"points\":7}}");
+		report("<testcase classname='example.Check' name='basic'/><testcase classname='other.Check' name='other'/>");
+		JsonNode passed = create(0);
+		assertState(passed, "passed", 7);
+		assertTrue(FeedbackArtifact.summary(passed).contains("| `Maven test suite` | passed | 7/7 |"));
+		report("<testcase classname='example.Check' name='basic'/><testcase classname='other.Check' name='other'><failure/></testcase>");
+		JsonNode failed = create(1);
+		assertState(failed, "failed", 0);
+		assertTrue(FeedbackArtifact.summary(failed).contains("Status: **failed** — 0/7 points."));
+	}
+
+	@Test void testSuitePassingReportsNeedSuccessfulExecutionAndNonemptyReports() throws IOException {
+		Files.writeString(rubric, "{\"suite\":{\"points\":7}}");
+		assertState(create(0), "incomplete", null);
+		report("");
+		assertState(create(0), "incomplete", null);
+		report("<testcase classname='example.Check' name='basic'/>");
+		for(int exit : List.of(1, 2, 137)) {
+			JsonNode result = create(exit);
+			assertState(result, "error", null);
+			assertEquals("passed", result.path("feedback").path("status").asString());
+			assertTrue(FeedbackArtifact.summary(result).contains("| `Maven test suite` | passed | 7 |"));
+		}
+		assertState(create(124), "timed_out", null);
+		report("<testcase classname='example.Check' name='basic'><skipped/></testcase>");
+		assertState(create(0), "incomplete", null);
+	}
+
 	@Test void testInvalidExitCodeAndRubricDoNotProduceArtifact() throws IOException {
 		assertThrows(IllegalArgumentException.class, () -> create(-1));
 		assertThrows(IllegalArgumentException.class, () -> create(256));

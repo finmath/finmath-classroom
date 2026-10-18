@@ -85,7 +85,7 @@ public final class FeedbackArtifact {
 				.append("Feedback only. Final marks require instructor-controlled grading.\n\n")
 				.append("| Test | Result | ").append(scored ? "Points" : "Maximum points").append(" |\n| --- | --- | ---: |\n");
 		for(JsonNode test : result.path("feedback").path("cases")) {
-			text.append("| `").append(test.path("method").asString()).append("` | ").append(test.path("status").asString()).append(" | ");
+			text.append("| `").append(test.path(test.has("suite") ? "suite" : "method").asString()).append("` | ").append(test.path("status").asString()).append(" | ");
 			if(scored) text.append(number(test.path("points"))).append('/');
 			text.append(number(test.path("max_points"))).append(" |\n");
 		}

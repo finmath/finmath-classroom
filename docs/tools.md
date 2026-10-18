@@ -25,7 +25,8 @@ Add `--summary /private/service/feedback.md` to also append a Markdown summary.
 The [autograding action and migration guide](autograding.md) describes shared Maven
 test execution and artifact upload. Action publication and a live pilot are pending.
 
-`feedback select --rubric FILE` prints the validated Surefire method selectors.
+`feedback select --rubric FILE` prints the validated Surefire method selectors,
+or an empty line for a whole-suite rubric (the caller must omit `-Dtest`).
 `feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER
 --output FILE [--summary FILE]` packages existing reports and run context into the
 versioned uploaded-result format. It never executes tests, and requires fresh

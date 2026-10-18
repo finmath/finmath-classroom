@@ -20,16 +20,16 @@ Do not promise automatic deadline enforcement or final grades before those exist
 ## 2. Share the student feedback workflow
 
 The [composite action and migration guide](autograding.md) now provide weighted
-JUnit scoring, summaries and versioned result artifacts. Publish the action and
+JUnit scoring, all-or-nothing Maven suite scoring, summaries and versioned result artifacts. Publish the action and
 pilot it on GitHub before rolling it out. It currently builds the scorer JAR from
 its pinned source; a published JAR with a verified checksum could shorten startup
 later. No assignment POM needs to inherit from this service, and the generated
 lecture workspace remains separate from the published action.
 
 Review each template's weights, Java version and total timeout budget during
-migration. Whole-command/all-or-nothing grading and parameterized/dynamic tests
-still need explicit support; do not change their semantics by mechanically
-converting them to per-method points. Pilot a small supported assignment first.
+migration. Use the suite rubric for whole-Maven-test grading instead of inventing
+per-method weights. Arbitrary commands and parameterized/dynamic method selectors
+still need explicit support. Pilot a small supported assignment first.
 Existing student repositories need a separate update because template changes do
 not propagate to independent copies. Keep unrelated style/documentation jobs
 outside the grade and update their old action dependencies separately.

@@ -58,9 +58,13 @@ if [[ -L target ]]; then
   exit 2
 fi
 rm -rf -- target/surefire-reports
+maven_args=(-B -ntp -Dcheckstyle.skip=true)
+if [[ -n "$selection" ]]; then
+  maven_args+=("-Dtest=$selection")
+fi
 test_exit=0
 timeout --signal=TERM --kill-after=30s "${minutes}m" \
-  mvn -B -ntp -Dcheckstyle.skip=true "-Dtest=$selection" clean test || test_exit=$?
+  mvn "${maven_args[@]}" clean test || test_exit=$?
 
 report_exit=0
 "$GRADER_JAVA" -jar "$JAR_PATH" feedback report \

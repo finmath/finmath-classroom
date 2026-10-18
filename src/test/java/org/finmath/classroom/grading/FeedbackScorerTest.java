@@ -316,6 +316,81 @@ class FeedbackScorerTest {
         assertEquals(22, result.get("max_score").asInt());
     }
 
+    @Test
+    void suiteAwardsAllPointsOnlyWhenEveryReportPasses() throws IOException {
+        writeRubric("{\"suite\":{\"points\":5}}");
+        assertEquals("", FeedbackScorer.testSelection(rubric));
+        report(suite(testCase("basic")));
+        report("TEST-other.xml", suite(testCase("advanced")));
+        JsonNode passed = score();
+        assertResult(passed, "passed", 5);
+        assertEquals(5, passed.path("max_score").asInt());
+        assertEquals(1, passed.path("cases").size());
+        JsonNode entry = passed.path("cases").get(0);
+        assertEquals("Maven test suite", entry.path("suite").asString());
+        assertFalse(entry.has("class_name"));
+        assertFalse(entry.has("method"));
+        assertEquals(1, entry.path("occurrences").asInt());
+        assertTrue(FeedbackScorer.summary(passed).contains("| `Maven test suite` | passed | 5/5 |"));
+        report("TEST-other.xml", suite(testCase("advanced", "<failure/>")));
+        assertResult(score(), "failed", 0);
+    }
+
+    @Test
+    void suiteWithMissingOrEmptyReportsIsIncomplete() throws IOException {
+        writeRubric("{\"suite\":{\"points\":5}}");
+        assertResult(FeedbackScorer.score(rubric, root.resolve("absent")), "incomplete", 0);
+        assertResult(score(), "incomplete", 0);
+        report(suite());
+        JsonNode empty = score();
+        assertResult(empty, "incomplete", 0);
+        assertEquals("missing", empty.path("cases").get(0).path("status").asString());
+        assertEquals(0, empty.path("cases").get(0).path("occurrences").asInt());
+    }
+
+    @Test
+    void suiteWithDuplicateOrSkippedTestsIsIncomplete() throws IOException {
+        writeRubric("{\"suite\":{\"points\":5}}");
+        report(suite(testCase("basic"), testCase("advanced", "<failure/>")));
+        report("TEST-duplicate.xml", suite(testCase("basic")));
+        JsonNode duplicate = score();
+        assertResult(duplicate, "incomplete", 0);
+        assertEquals("duplicate", duplicate.path("cases").get(0).path("status").asString());
+        assertEquals(1, duplicate.path("cases").get(0).path("occurrences").asInt());
+        Files.delete(reports.resolve("TEST-duplicate.xml"));
+        report(suite(testCase("basic", "<skipped/>"), testCase("advanced", "<failure/>")));
+        JsonNode skipped = score();
+        assertResult(skipped, "incomplete", 0);
+        assertEquals("skipped", skipped.path("cases").get(0).path("status").asString());
+    }
+
+    @Test
+    void suiteRejectsMalformedReportsAndReportsTestErrors() throws IOException {
+        writeRubric("{\"suite\":{\"points\":5}}");
+        report(suite(testCase("basic")));
+        report("TEST-other.xml", "<broken>");
+        assertResult(score(), "error", 0);
+        assertFalse(score().path("errors").isEmpty());
+        report("TEST-other.xml", suite(testCase("advanced", "<error/>")));
+        assertResult(score(), "error", 0);
+        assertTrue(score().path("errors").isEmpty());
+    }
+
+    @Test
+    void suiteRubricRejectsMixedModesExtraFieldsAndInvalidPoints() throws IOException {
+        for (String json : List.of("{\"suite\":null}", "{\"suite\":[]}", "{\"suite\":{}}",
+                "{\"suite\":{\"points\":5,\"run\":\"mvn test\"}}",
+                "{\"suite\":{\"points\":5},\"tests\":[" + BASIC + "]}")) {
+            writeRubric(json);
+            assertThrows(IllegalArgumentException.class, this::score, json);
+            assertThrows(IllegalArgumentException.class, () -> FeedbackScorer.testSelection(rubric), json);
+        }
+        for (String points : List.of("0", "-1", "true", "null", "\"5\"", "1000001", "1e309")) {
+            writeRubric("{\"suite\":{\"points\":" + points + "}}");
+            assertThrows(Exception.class, this::score, points);
+        }
+    }
+
     private void writeRubric(String json) throws IOException {
         Files.writeString(rubric, json, StandardCharsets.UTF_8);
     }

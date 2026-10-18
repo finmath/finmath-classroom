@@ -1,8 +1,8 @@
 name: finmath classroom feedback
-description: Run weighted JUnit methods with Maven and publish student feedback.
+description: Grade weighted JUnit methods or a whole Maven test suite and publish student feedback.
 inputs:
   rubric:
-    description: Rubric JSON path relative to working-directory.
+    description: Rubric JSON for weighted methods or a whole suite, relative to working-directory.
     default: .github/classroom/autograding.json
   working-directory:
     description: Maven project directory relative to the checked-out repository.

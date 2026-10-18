@@ -45,13 +45,13 @@ public final class FeedbackScorer {
 
     /** Surefire selectors for one Maven invocation, using the same validated rubric as scoring. */
     public static String testSelection(Path rubric) throws IOException {
-        return String.join(",", loadRubric(rubric).stream()
+        return String.join(",", loadRubric(rubric).tests().stream()
                 .map(test -> test.key().className() + "#" + test.key().method()).toList());
     }
 
     /** Invalid rubrics are rejected; invalid reports produce an error result. */
     public static JsonNode score(Path rubric, Path reports) throws IOException {
-        List<ExpectedCase> expected = loadRubric(rubric);
+        Rubric expected = loadRubric(rubric);
         Reports collected = collectReports(reports);
         ObjectNode result = JsonFiles.MAPPER.createObjectNode();
         result.put("schema_version", 1);
@@ -61,7 +61,7 @@ public final class FeedbackScorer {
         Set<String> states = new HashSet<>();
         BigDecimal earned = BigDecimal.ZERO;
         BigDecimal maximum = BigDecimal.ZERO;
-        for (ExpectedCase test : expected) {
+        for (ExpectedCase test : expected.tests()) {
             List<String> occurrences = collected.found().getOrDefault(test.key(), List.of());
             String state;
             if (!collected.errors().isEmpty()) {
@@ -83,6 +83,30 @@ public final class FeedbackScorer {
             entry.put("max_points", test.points());
             earned = earned.add(points);
             maximum = maximum.add(test.points());
+            states.add(state);
+        }
+        if (expected.suitePoints() != null) {
+            collected.found().values().forEach(states::addAll);
+            String state;
+            if (!collected.errors().isEmpty() || states.contains("error")) {
+                state = "error";
+            } else if (collected.found().isEmpty()) {
+                state = "missing";
+            } else if (collected.found().values().stream().anyMatch(occurrences -> occurrences.size() != 1)) {
+                state = "duplicate";
+            } else if (states.contains("skipped")) {
+                state = "skipped";
+            } else if (states.contains("failed")) {
+                state = "failed";
+            } else {
+                state = "passed";
+            }
+            earned = state.equals("passed") ? expected.suitePoints() : BigDecimal.ZERO;
+            maximum = expected.suitePoints();
+            cases.addObject().put("suite", "Maven test suite").put("status", state)
+                    .put("occurrences", collected.found().isEmpty() ? 0 : 1)
+                    .put("points", earned).put("max_points", maximum);
+            states.clear();
             states.add(state);
         }
         String status;
@@ -112,7 +136,7 @@ public final class FeedbackScorer {
                 .append("Feedback only. Final marks require instructor-controlled grading.\n\n")
                 .append("| Test | Result | Points |\n| --- | --- | ---: |\n");
         for (JsonNode test : result.path("cases")) {
-            text.append("| `").append(test.path("method").asString()).append("` | ")
+            text.append("| `").append(test.path(test.has("suite") ? "suite" : "method").asString()).append("` | ")
                     .append(test.path("status").asString()).append(" | ")
                     .append(number(test.path("points"))).append('/')
                     .append(number(test.path("max_points"))).append(" |\n");
@@ -136,10 +160,17 @@ public final class FeedbackScorer {
         return value.decimalValue().stripTrailingZeros().toPlainString();
     }
 
-    private static List<ExpectedCase> loadRubric(Path path) throws IOException {
+    private static Rubric loadRubric(Path path) throws IOException {
         JsonNode rubric = JsonFiles.read(path, MAX_RUBRIC_BYTES);
-        if (!rubric.isObject() || rubric.size() != 1 || !rubric.has("tests")) {
-            throw new IllegalArgumentException("rubric must be an object containing only 'tests'");
+        if (!rubric.isObject() || rubric.size() != 1 || !(rubric.has("tests") || rubric.has("suite"))) {
+            throw new IllegalArgumentException("rubric must be an object containing only 'tests' or 'suite'");
+        }
+        if (rubric.has("suite")) {
+            JsonNode suite = rubric.get("suite");
+            if (!suite.isObject() || suite.size() != 1 || !suite.has("points")) {
+                throw new IllegalArgumentException("suite requires exactly points");
+            }
+            return new Rubric(List.of(), points(suite.get("points")));
         }
         JsonNode tests = rubric.get("tests");
         if (!tests.isArray() || tests.isEmpty() || tests.size() > MAX_EXPECTED_TESTS) {
@@ -154,21 +185,25 @@ public final class FeedbackScorer {
             }
             String className = identifier(test.get("class_name"), CLASS_NAME, "class_name must be a Java class name");
             String method = identifier(test.get("method"), METHOD_NAME, "method must be a Java method name");
-            JsonNode numeric = test.get("points");
-            if (!numeric.isNumber() || !Double.isFinite(numeric.doubleValue())) {
-                throw new IllegalArgumentException("points must be a positive finite number");
-            }
-            BigDecimal points = numeric.decimalValue();
-            if (points.signum() <= 0 || points.compareTo(BigDecimal.valueOf(1_000_000)) > 0) {
-                throw new IllegalArgumentException("points must be positive, finite, and at most 1000000");
-            }
+            BigDecimal points = points(test.get("points"));
             CaseKey key = new CaseKey(className, method);
             if (!seen.add(key)) {
                 throw new IllegalArgumentException("duplicate expected case: " + className + "#" + method);
             }
             result.add(new ExpectedCase(key, points));
         }
-        return result;
+        return new Rubric(result, null);
+    }
+
+    private static BigDecimal points(JsonNode numeric) {
+        if (!numeric.isNumber() || !Double.isFinite(numeric.doubleValue())) {
+            throw new IllegalArgumentException("points must be a positive finite number");
+        }
+        BigDecimal points = numeric.decimalValue();
+        if (points.signum() <= 0 || points.compareTo(BigDecimal.valueOf(1_000_000)) > 0) {
+            throw new IllegalArgumentException("points must be positive, finite, and at most 1000000");
+        }
+        return points;
     }
 
     private static String identifier(JsonNode node, Pattern pattern, String message) {
@@ -266,6 +301,9 @@ public final class FeedbackScorer {
     }
 
     private record ExpectedCase(CaseKey key, BigDecimal points) {
+    }
+
+    private record Rubric(List<ExpectedCase> tests, BigDecimal suitePoints) {
     }
 
     private record Reports(Map<CaseKey, List<String>> found, List<String> errors) {

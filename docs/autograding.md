@@ -1,13 +1,14 @@
 # Autograding action and migration
 
 The [shared action](../action.yml) replaces `education/autograding` for Maven
-assignments graded by named JUnit methods. It runs selected tests once, scores
+assignments graded by named JUnit methods or by the whole test suite. It runs tests once, scores
 Surefire XML reports, writes a GitHub job summary and uploads a versioned result.
 The Java scorer only reads files; Maven executes assignment code on the runner.
 Use disposable GitHub-hosted runners with no classroom credentials.
 
-The action and CLI are implemented locally. The action must be published and
-piloted on GitHub before another repository can reference it. Automatic server
+The shared action lives in `finmath/finmath-classroom`. Its pinned commit must be
+pushed there before assignment workflows can use it; a live GitHub pilot is still
+required. Automatic server
 collection and authoritative final grading remain pending.
 
 ## 1. Migrate `.github/classroom/autograding.json`
@@ -30,7 +31,7 @@ class, method name and existing point weight. For example:
 Repeat for the other graded methods, preserving their weights. The complete
 [example rubric](../examples/grading/rubric.json) has five methods totaling 22 points.
 Use the class name reported as `classname` in Surefire XML, including its package.
-The file contains exactly `tests`, with exactly `class_name`, `method` and `points`
+For method grading, the file contains exactly `tests`, with exactly `class_name`, `method` and `points`
 per entry; filenames can remain `autograding.json`. This is the existing rubric
 format, now also used to select which methods Maven runs.
 
@@ -59,19 +60,35 @@ with ten minutes each do not have the same budget as a single ten-minute run.
 Choose the new total intentionally, including compilation, and leave additional
 time in the job timeout for building the scorer and uploading feedback.
 
-This first version supports ordinary, uniquely named JUnit methods in a single
-Maven module. Parameterized/dynamic tests, arbitrary commands, stdin/stdout
-comparisons and whole-command all-or-nothing scoring need an explicit extension.
-In particular, do not split a five-point `mvn test` rule into per-method points
-and call it equivalent. Necessary setup belongs in the Maven build or an explicit
+For a legacy rule awarding all points only when `mvn test` succeeds, use the
+[suite rubric](../examples/grading/suite-rubric.json):
+
+```json
+{"suite": {"points": 5}}
+```
+
+Keep the original point total. `suite` and `tests` are alternative formats, not
+fields to combine. Suite mode runs `mvn -B -ntp -Dcheckstyle.skip=true clean test`
+without a `-Dtest` filter, retaining Maven's configured test discovery. Complete
+passing reports and a successful Maven exit earn the full total; assertion failures
+earn zero. Missing, skipped, duplicate or invalid results and process errors leave
+the uploaded score unavailable. This preserves all-or-nothing points without
+inventing per-method weights. Suite mode does not declare which tests must exist;
+it remains student feedback, not proof of test coverage or an authoritative grade.
+
+Both formats support a single Maven module. Method grading requires ordinary,
+uniquely named JUnit methods; parameterized/dynamic method selectors, arbitrary
+commands and stdin/stdout comparisons remain unsupported. Necessary setup belongs in the Maven build or an explicit
 workflow step whose output survives `clean`. Existing custom Maven flags need
 review; the action does not execute legacy `run` strings.
 
 ## 2. Replace the grading job
 
-First publish this repository's action, Java sources and scripts together. Replace
-`OWNER` and `PUBLISHED_COMMIT_SHA` below with that accessible repository and a full
-reviewed commit SHA. These are placeholders, not a published release.
+Publish this repository's action, Java sources and scripts together to
+`https://github.com/finmath/finmath-classroom`. Replace `PUBLISHED_COMMIT_SHA` below
+with the full reviewed commit SHA. A local commit must be pushed before GitHub can
+resolve it. This is a **composite action used inside `steps`**, not a reusable
+workflow called with a job-level `uses` or a path to `.github/workflows`.
 
 ```yaml
 autograding:
@@ -91,7 +108,7 @@ autograding:
         java-version: '17'
         cache: maven
     - name: Test and upload feedback
-      uses: OWNER/finmath-classroom@PUBLISHED_COMMIT_SHA
+      uses: finmath/finmath-classroom@PUBLISHED_COMMIT_SHA
       with:
         rubric: .github/classroom/autograding.json
         timeout-minutes: '10'
@@ -116,12 +133,18 @@ summary reads GitHub's `needs` results directly; the autograding action provides
 the points and per-test table in its own job summary. No annotations API or extra
 token permissions are needed.
 
+For a POM without Checkstyle configuration, set the example's checkstyle job
+condition to `if: ${{ false }}`; the summary then shows it as skipped.
+
 The same example can be installed across templates sharing the Maven layout,
-Java version and timeout budget. Set `OWNER` and `PUBLISHED_COMMIT_SHA` once for
+Java version and timeout budget. Set `PUBLISHED_COMMIT_SHA` once for
 the common workflow, then migrate each assignment's `autograding.json` and retain
 its tests. The workflow-level `JAVA_VERSION` defaults to 17; adjust it for projects
-requiring another version. Templates with whole-command grading still need the
-explicit extension described above.
+requiring another version. Retain an intentional total test timeout and allow
+another 20 minutes in the grading job for scorer setup and artifact upload.
+For a migration, summing the previous per-entry budgets preserves their maximum
+sequential allowance, but does not reproduce individual test timeouts. Projects
+without grading rules can retain ordinary ungraded test jobs until a rubric is chosen.
 
 The example supports `push`, ordinary `pull_request` and manual `workflow_dispatch`.
 For a pull request, GitHub's default checkout tests the synthetic merge commit;
@@ -174,7 +197,13 @@ A [complete example](../examples/grading/result.json) illustrates the format.
 | `execution` | Maven/timeout `exit_code` and process `status`. |
 | `status` | Effective feedback state, taking process failure and report completeness into account. |
 | `score`, `max_score` | Available earned points or `null`, and the rubric total. |
-| `feedback` | Unchanged local scorer v1 output, including per-case results and diagnostic errors. |
+| `feedback` | Local scorer v1 output, including weighted method cases or one aggregate suite case, and diagnostic errors. |
+
+Method cases retain `class_name` and `method`. Suite feedback instead has one case
+with `suite: "Maven test suite"`, the full point weight, and an aggregate status.
+Its `occurrences` is 0 when no test cases were reported, otherwise 1; it does not
+count individual methods. The suite alternative extends the v1 schema before its
+first publication; existing method results are unchanged.
 
 Process status is `completed` for exit 0 or 1, `timed_out` for GNU timeout's exit
 124, and `error` for other exit codes. Exit 137 is ambiguous (for example, forced
@@ -231,8 +260,8 @@ java -jar target/finmath-classroom.jar feedback report \
 The example context is fictional; the action constructs real context from the run
 environment. Output directories must exist, and output files must be new. Report
 exit codes are 0 for passed, 1 for failed/incomplete, and 2 for errors/timeouts.
-An input error can prevent output entirely. The legacy `score` command and its
-feedback schema remain unchanged.
+An input error can prevent output entirely. The local `score` command also accepts
+suite rubrics. Existing method rubrics and their feedback retain their format.
 
 Run `mvn -B -ntp verify`, then `bash scripts/test-autograding.sh` for the action's
 offline shell integration checks with a fake Maven process and the real JAR. These

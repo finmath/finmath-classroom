@@ -67,8 +67,13 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["class_name", "method", "status", "occurrences", "points", "max_points"],
+            "required": ["status", "occurrences", "points", "max_points"],
+            "oneOf": [
+              {"required": ["class_name", "method"], "not": {"required": ["suite"]}},
+              {"required": ["suite"], "not": {"anyOf": [{"required": ["class_name"]}, {"required": ["method"]}]}}
+            ],
             "properties": {
+              "suite": {"const": "Maven test suite"},
               "class_name": {"type": "string", "minLength": 1, "maxLength": 300},
               "method": {"type": "string", "minLength": 1, "maxLength": 300},
               "status": {"enum": ["passed", "failed", "error", "skipped", "missing", "duplicate"]},
