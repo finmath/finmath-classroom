@@ -1,5 +1,5 @@
 # Install in an assignment repository as .github/workflows/classroom.yml.
-# Publish the pinned finmath/finmath-classroom commit before enabling this workflow.
+# Publish finmath/finmath-classroom's v1 tag before enabling this workflow.
 name: Assignment checks and feedback
 on:
   push:
@@ -81,7 +81,7 @@ jobs:
           java-version: ${{ env.JAVA_VERSION }}
           cache: maven
       - name: Test and upload feedback
-        uses: finmath/finmath-classroom@1db382921c5d48b38bbcde50bc113dbee75aad46
+        uses: finmath/finmath-classroom@v1
         with:
           rubric: .github/classroom/autograding.json
           timeout-minutes: '10'

@@ -47,7 +47,7 @@ runs:
         set-default: false
         overwrite-settings: false
 
-    - name: Build the pinned grader source
+    - name: Build the selected grader source
       shell: bash
       working-directory: ${{ github.action_path }}
       env:

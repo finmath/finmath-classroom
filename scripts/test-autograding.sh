@@ -31,11 +31,11 @@ cat > "$suite/bin/mvn" <<'EOF'
 set -euo pipefail
 [[ "$JAVA_HOME" == assignment-java-home ]]
 [[ ! -e target/surefire-reports ]]
-[[ "$1" == -B && "$2" == -ntp && "$3" == -Dcheckstyle.skip=true ]]
+[[ "$1" == -U && "$2" == -B && "$3" == -ntp && "$4" == -Dcheckstyle.skip=true ]]
 if [[ "$FAKE_SUITE" == yes ]]; then
-  [[ "$#" == 5 && "$4" == clean && "$5" == test ]]
+  [[ "$#" == 6 && "$5" == clean && "$6" == test ]]
 else
-  [[ "$#" == 6 && "$4" == '-Dtest=example.Test#testOne,example.Test#testTwo' && "$5" == clean && "$6" == test ]]
+  [[ "$#" == 7 && "$5" == '-Dtest=example.Test#testOne,example.Test#testTwo' && "$6" == clean && "$7" == test ]]
 fi
 printf 'Maven invocation\n' >> "$FAKE_MAVEN_LOG"
 # Both metadata and the rubric snapshot must exist before Maven starts.

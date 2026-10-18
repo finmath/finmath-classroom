@@ -6,10 +6,10 @@ Surefire XML reports, writes a GitHub job summary and uploads a versioned result
 The Java scorer only reads files; Maven executes assignment code on the runner.
 Use disposable GitHub-hosted runners with no classroom credentials.
 
-The shared action lives in `finmath/finmath-classroom`. Its pinned commit must be
-pushed there before assignment workflows can use it; a live GitHub pilot is still
-required. Automatic server
-collection and authoritative final grading remain pending.
+The shared action lives in `finmath/finmath-classroom`. Publish its maintained
+`v1` tag before assignment workflows reference it; publication and a live GitHub
+pilot are still pending. Automatic server collection and authoritative final
+grading remain pending.
 
 ## 1. Migrate `.github/classroom/autograding.json`
 
@@ -47,13 +47,19 @@ format, now also used to select which methods Maven runs.
 The action invokes Maven with all selectors in one quoted `-Dtest` argument:
 
 ```text
-mvn -B -ntp -Dcheckstyle.skip=true "-Dtest=package.Test#first,package.Test#second" clean test
+mvn -U -B -ntp -Dcheckstyle.skip=true "-Dtest=package.Test#first,package.Test#second" clean test
 ```
 
 There is no `grep` output filter. Maven logs remain available, and XML determines
 the score. Running the methods together avoids successive invocations overwriting
 each other's reports. Surefire supports class/method selection; check your project's
 plugin/provider compatibility in the pilot. [Surefire selection reference](https://maven.apache.org/surefire/maven-surefire-plugin/examples/single-test.html)
+
+`-U` checks remote repositories for updated SNAPSHOT dependencies on each grading
+run, even when Maven dependencies were restored from the workflow cache. This lets
+instructors deploy updated test artifacts while an assignment is running; their
+interfaces and the rubric's method names must remain compatible. It also checks
+for missing releases. [Maven CLI reference](https://maven.apache.org/ref/3.9.11/maven-embedder/cli.html)
 
 **Review timeout budgets:** the old timeout was per grading entry. Five entries
 with ten minutes each do not have the same budget as a single ten-minute run.
@@ -68,7 +74,7 @@ For a legacy rule awarding all points only when `mvn test` succeeds, use the
 ```
 
 Keep the original point total. `suite` and `tests` are alternative formats, not
-fields to combine. Suite mode runs `mvn -B -ntp -Dcheckstyle.skip=true clean test`
+fields to combine. Suite mode runs `mvn -U -B -ntp -Dcheckstyle.skip=true clean test`
 without a `-Dtest` filter, retaining Maven's configured test discovery. Complete
 passing reports and a successful Maven exit earn the full total; assertion failures
 earn zero. Missing, skipped, duplicate or invalid results and process errors leave
@@ -84,12 +90,10 @@ review; the action does not execute legacy `run` strings.
 
 ## 2. Replace the grading job
 
-Publish this repository's action, Java sources and scripts together to
-`https://github.com/finmath/finmath-classroom`. The example pins the grader to
-commit `1db382921c5d48b38bbcde50bc113dbee75aad46`; push that commit before GitHub
-can resolve it, then publish the assignment workflow changes. This is a
-**composite action used inside `steps`**, not a reusable
-workflow called with a job-level `uses` or a path to `.github/workflows`.
+Publish this repository's action, Java sources and scripts together, including
+the `v1` tag, before publishing the assignment workflow changes. This is a
+**composite action used inside `steps`**, not a reusable workflow called with a
+job-level `uses` or a path to `.github/workflows`.
 
 ```yaml
 autograding:
@@ -109,12 +113,33 @@ autograding:
         java-version: '17'
         cache: maven
     - name: Test and upload feedback
-      uses: finmath/finmath-classroom@1db382921c5d48b38bbcde50bc113dbee75aad46
+      uses: finmath/finmath-classroom@v1
       with:
         rubric: .github/classroom/autograding.json
         timeout-minutes: '10'
         retention-days: '30'
 ```
+
+The maintained `v1` tag advances only to tested, backward-compatible releases.
+Existing repositories using `@v1` receive those grader fixes on subsequent runs
+without a pull request. Keep release tags such as `v1.0.0` fixed; use one of those
+or a full commit SHA when you want to hold the grader version. Breaking changes
+belong in `v2`. This follows [GitHub's action release guidance](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/manage-custom-actions#using-release-management-for-actions).
+
+The initial local tags are `v1.0.0` and `v1`. After reviewing the release, publish
+the service and these tags first, then the template workflow commits:
+
+```sh
+git push origin main
+git push origin refs/tags/v1.0.0:refs/tags/v1.0.0 refs/tags/v1:refs/tags/v1
+```
+
+Updating `v1` or deploying a SNAPSHOT does not itself trigger student workflows.
+The shared action controls execution, scoring and upload; rubric weights, test
+selection and surrounding workflow jobs remain files in each student repository.
+Those local changes still need a repository update. A fixed grader reference does
+not fix SNAPSHOT test contents. Recording the actual resolved grader and test
+artifact versions for reproducible final grading remains future work.
 
 The [complete workflow example](../examples/grading/classroom.yml.example) retains
 five visible jobs:
@@ -138,7 +163,7 @@ For a POM without Checkstyle configuration, set the example's checkstyle job
 condition to `if: ${{ false }}`; the summary then shows it as skipped.
 
 The same example can be installed across templates sharing the Maven layout,
-Java version and timeout budget. Use the same reviewed grader commit for
+Java version and timeout budget. Use the maintained `@v1` grader reference for
 the common workflow, then migrate each assignment's `autograding.json` and retain
 its tests. The workflow-level `JAVA_VERSION` defaults to 17; adjust it for projects
 requiring another version. Retain an intentional total test timeout and allow
@@ -166,11 +191,11 @@ Ubuntu runners with Bash, Maven, Git, jq and GNU timeout. Retention must fit the
 repository's policy. A cancelled runner or failed setup/upload may leave no artifact.
 
 The action installs a separate Java 17 runtime for the scorer and builds the JAR
-from the pinned action source in its own directory. The assignment retains the
+from the resolved action source in its own directory. The assignment retains the
 Java version selected above, including Java 11 if needed. Building the scorer is
 an initial distribution mechanism; there is no JAR release to download yet.
-The shared action's dependencies are also pinned to commits. GitHub documents this
-step-sharing mechanism in its [composite action guide](https://docs.github.com/en/actions/tutorials/create-actions/create-a-composite-action).
+The shared action's external action dependencies remain pinned to commits. GitHub
+documents this step-sharing mechanism in its [composite action guide](https://docs.github.com/en/actions/tutorials/create-actions/create-a-composite-action).
 
 Replace the old grading-summary job that scrapes `education/autograding` annotations
 with the summary in the complete example. Maven caching is handled by
@@ -178,8 +203,9 @@ with the summary in the complete example. Maven caching is handled by
 The JavaDoc command uses the Maven Javadoc plugin's current `-Ddoclint=none`
 property instead of `additionalparam`. Review plugin compatibility for older POMs.
 See the [Javadoc plugin reference](https://maven.apache.org/plugins/maven-javadoc-plugin/javadoc-mojo.html#doclint).
-Updating a template affects future copies. Existing student repositories require
-a separate, reviewed workflow/configuration update.
+Updating a template affects future copies. Existing student repositories need a
+one-time workflow update to adopt `@v1`, and separate updates for local workflow
+or rubric changes; compatible changes inside the shared action then follow `v1`.
 
 ## 3. Uploaded result contract: version 1
 

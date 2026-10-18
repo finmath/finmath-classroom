@@ -21,18 +21,24 @@ Do not promise automatic deadline enforcement or final grades before those exist
 
 The [composite action and migration guide](autograding.md) now provide weighted
 JUnit scoring, all-or-nothing Maven suite scoring, summaries and versioned result artifacts. Publish the action and
-pilot it on GitHub before rolling it out. It currently builds the scorer JAR from
-its pinned source; a published JAR with a verified checksum could shorten startup
-later. No assignment POM needs to inherit from this service, and the generated
+pilot it on GitHub before rolling it out. Publish the initial `v1.0.0` and `v1`
+tags before the template workflows. Advance `v1` only to tested, compatible
+releases, keep specific release tags fixed, and use `v2` for breaking changes.
+It currently builds the scorer JAR from its resolved action source; a published
+JAR with a verified checksum could shorten startup later. No assignment POM needs
+to inherit from this service, and the generated
 lecture workspace remains separate from the published action.
 
 Review each template's weights, Java version and total timeout budget during
 migration. Use the suite rubric for whole-Maven-test grading instead of inventing
 per-method weights. Arbitrary commands and parameterized/dynamic method selectors
 still need explicit support. Pilot a small supported assignment first.
-Existing student repositories need a separate update because template changes do
-not propagate to independent copies. Keep unrelated style/documentation jobs
-outside the grade and update their old action dependencies separately.
+Existing student repositories need a one-time update to adopt `@v1`; compatible
+shared grader fixes then reach subsequent runs without repository changes.
+Local rubric and workflow changes still need separate updates. Grading uses
+Maven `-U` to check for updated SNAPSHOT test artifacts even with a restored cache.
+Moving the tag or deploying tests does not itself trigger student workflows.
+Keep unrelated style/documentation jobs outside the grade.
 
 ## 3. Collect feedback reliably
 
@@ -105,8 +111,11 @@ may legitimately finish after a submission deadline.
 Run authoritative grading in a separately isolated, instructor-controlled runner
 with trusted tests, rubric and build policy. Use the preserved submission commit,
 resource/time limits, and an explicit policy for compile errors and infrastructure
-failures. Student code must have no classroom credentials or access to the
-administration process, trusted result storage or other students' work. Sharing
+failures. Record the resolved grader commit and exact test artifact versions or
+digests; mutable `v1` and SNAPSHOT coordinates alone cannot reproduce a result.
+This version recording is not implemented yet. Student code must have no classroom
+credentials or access to the administration process, trusted result storage or
+other students' work. Sharing
 the scorer is useful; copying an editable workflow result into the final-result
 format does not make it trustworthy.
 

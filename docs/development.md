@@ -88,6 +88,7 @@ grade return are not implemented.
 | 2026-10-18: feedback integration | Added a shared Maven/JUnit action, a versioned result envelope and schema, method-selection/report CLI commands and a migration guide. Publication and the live Actions pilot remain pending. |
 | 2026-10-18: full assignment workflow | Restored the example's build, advisory JavaDoc/checkstyle and summary jobs; added ordinary pull-request feedback with explicit merge-commit identity. |
 | 2026-10-18: template migration | Added an explicit all-or-nothing Maven suite rubric, preserving existing weighted-method results; prepared pinned action references for assignment templates. |
+| 2026-10-18: central feedback updates | Switched assignment templates to the maintained `v1` action reference and added Maven `-U` to refresh SNAPSHOT checks despite dependency caching. |
 
 An instructor-account registration pilot was reported working. A complete learner
 pilot, the intended Moodle installation and public hosting still need validation.
@@ -154,3 +155,10 @@ validated the existing method example and Java-produced suite artifacts for all
 five result statuses. YAML and job dependency checks passed for the common example
 and 14 prepared template workflows. Assignment builds and live Actions runs were
 not executed; publication and the live pilot remain pending.
+
+The central-update follow-up passed all 17 offline shell scenarios on Java 17,
+with `-U` required for both method and suite grading. YAML checks confirmed that
+all 14 template workflows changed only their action reference, apart from comments.
+No Java code changed, so Maven verification above was not repeated. The initial
+`v1.0.0` release tag and moving `v1` tag are prepared locally; publication and a live
+SNAPSHOT-update pilot remain pending.

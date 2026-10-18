@@ -58,7 +58,8 @@ if [[ -L target ]]; then
   exit 2
 fi
 rm -rf -- target/surefire-reports
-maven_args=(-B -ntp -Dcheckstyle.skip=true)
+# Check for updated lecture/test SNAPSHOTs even when Maven dependencies are cached.
+maven_args=(-U -B -ntp -Dcheckstyle.skip=true)
 if [[ -n "$selection" ]]; then
   maven_args+=("-Dtest=$selection")
 fi
