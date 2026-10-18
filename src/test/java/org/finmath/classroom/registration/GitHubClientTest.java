@@ -19,10 +19,13 @@ import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.finmath.classroom.io.JsonFiles;
+import org.finmath.classroom.registration.GitHubException.Category;
+import org.finmath.classroom.registration.GitHubException.Operation;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.EnumSource;
 import org.junit.jupiter.params.provider.ValueSource;
 
 import com.sun.net.httpserver.HttpServer;
@@ -147,10 +150,61 @@ class GitHubClientTest {
 	@ValueSource(ints = {301, 302, 401, 403, 404, 422, 429, 500})
 	void testFailuresNeverRetryOrExposeResponseSecrets(int status) {
 		responses.add(new Response(status, "{\"message\":\"provisioning-secret oauth-secret student_token\"}"));
-		IOException exception = assertThrows(IOException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
-		assertEquals("GitHub request failed (HTTP " + status + ")", exception.getMessage());
+		GitHubException exception = assertThrows(GitHubException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		assertEquals(Operation.CREATE_REPOSITORY, exception.operation());
+		assertEquals(Category.HTTP_STATUS, exception.category());
+		assertEquals(status, exception.httpStatus());
+		assertFalse(exception.getMessage().contains("secret"));
+		assertFalse(exception.getMessage().contains("student_token"));
 		assertNull(exception.getCause());
 		assertEquals(1, requests.size());
+	}
+
+	@ParameterizedTest
+	@EnumSource(Operation.class)
+	void testHttpFailuresIdentifyTheOperationWithoutRequestOrResponseData(Operation operation) {
+		if(operation == Operation.OAUTH_USER_LOOKUP) {
+			responses.add(new Response(200, "{\"access_token\":\"student_token\",\"token_type\":\"bearer\"}"));
+		}
+		responses.add(new Response(403, "{\"message\":\"provisioning-secret oauth-secret student_token\"}"));
+		GitHubException failure = assertThrows(GitHubException.class, () -> {
+			switch(operation) {
+				case ACCOUNT_LOOKUP -> github.user("student");
+				case REPOSITORY_LOOKUP -> github.repository("teaching/course-42");
+				case CREATE_REPOSITORY -> github.create("templates/exercise", "teaching", "course-42");
+				case GRANT_STAFF -> github.grantStaff("teaching", "staff", "teaching/course-42");
+				case INVITE_STUDENT -> github.invite("teaching/course-42", "student");
+				case OAUTH_TOKEN_EXCHANGE, OAUTH_USER_LOOKUP -> github.authenticate("private-code", "https://classroom.example/callback", "private-verifier");
+			}
+		});
+		assertEquals(operation, failure.operation());
+		assertEquals(Category.HTTP_STATUS, failure.category());
+		assertEquals(403, failure.httpStatus());
+		assertEquals("GitHub " + operation + " failed: HTTP_STATUS (HTTP 403)", failure.getMessage());
+		assertNull(failure.getCause());
+		assertEquals(operation == Operation.OAUTH_USER_LOOKUP ? 2 : 1, requests.size());
+	}
+
+	@Test
+	void testMissingOptionalTemplateFlagIsFalseForMetadataAndCreation() throws IOException {
+		String withoutFlag = REPOSITORY.replace("\"is_template\":false,", "");
+		responses.add(new Response(200, withoutFlag));
+		assertFalse(github.repository("teaching/course-42").template());
+		responses.add(new Response(201, withoutFlag));
+		GitHubGateway.Repository created = github.create("templates/exercise", "teaching", "course-42");
+		assertFalse(created.template());
+		assertEquals(123, created.id());
+		assertTrue(created.privateRepository());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"null", "\"false\"", "1"})
+	void testPresentTemplateFlagMustStillBeBoolean(String flag) {
+		responses.add(new Response(201, REPOSITORY.replace("\"is_template\":false", "\"is_template\":" + flag)));
+		GitHubException failure = assertThrows(GitHubException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		assertEquals(Operation.CREATE_REPOSITORY, failure.operation());
+		assertEquals(Category.INVALID_RESPONSE, failure.category());
+		assertNull(failure.httpStatus());
 	}
 
 	@ParameterizedTest
@@ -160,7 +214,9 @@ class GitHubClientTest {
 			"{\"id\":0,\"login\":\"student\",\"type\":\"User\"}"})
 	void testRejectsInvalidOrMismatchedStudentIdentity(String response) {
 		responses.add(new Response(200, response));
-		assertThrows(IOException.class, () -> github.user("student"));
+		GitHubException failure = assertThrows(GitHubException.class, () -> github.user("student"));
+		assertEquals(Operation.ACCOUNT_LOOKUP, failure.operation());
+		assertEquals(Category.INVALID_RESPONSE, failure.category());
 	}
 
 	@Test
@@ -188,16 +244,21 @@ class GitHubClientTest {
 		responses.add(new Response(200, "{\"secret\":\"" + "x".repeat(1024 * 1024) + "\"}"));
 		assertThrows(IOException.class, () -> github.user("student"));
 		responses.add(new Response(200, "{\"access_token\":\"student_token\", malformed-secret"));
-		IOException exception = assertThrows(IOException.class, () -> github.authenticate("code", "https://classroom.example/callback", "verifier"));
-		assertEquals("GitHub returned an invalid JSON response", exception.getMessage());
+		GitHubException exception = assertThrows(GitHubException.class, () -> github.authenticate("code", "https://classroom.example/callback", "verifier"));
+		assertEquals(Operation.OAUTH_TOKEN_EXCHANGE, exception.operation());
+		assertEquals(Category.INVALID_JSON, exception.category());
+		assertFalse(exception.getMessage().contains("student_token"));
+		assertFalse(exception.getMessage().contains("malformed-secret"));
 		assertNull(exception.getCause());
 	}
 
 	@Test
 	void testOAuthErrorDoesNotBecomeAnAuthenticatedUser() {
 		responses.add(new Response(200, "{\"error\":\"bad_verification_code\",\"error_description\":\"private details\"}"));
-		IOException exception = assertThrows(IOException.class, () -> github.authenticate("code", "https://classroom.example/callback", "verifier"));
-		assertEquals("GitHub sign-in could not be completed", exception.getMessage());
+		GitHubException exception = assertThrows(GitHubException.class, () -> github.authenticate("code", "https://classroom.example/callback", "verifier"));
+		assertEquals(Operation.OAUTH_TOKEN_EXCHANGE, exception.operation());
+		assertEquals(Category.AUTHENTICATION_REJECTED, exception.category());
+		assertFalse(exception.getMessage().contains("private details"));
 		assertEquals(1, requests.size());
 	}
 

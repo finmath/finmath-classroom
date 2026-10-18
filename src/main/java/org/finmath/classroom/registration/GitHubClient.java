@@ -6,6 +6,7 @@ import java.net.URLEncoder;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
@@ -20,6 +21,8 @@ import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
 
 import org.finmath.classroom.io.JsonFiles;
+import org.finmath.classroom.registration.GitHubException.Category;
+import org.finmath.classroom.registration.GitHubException.Operation;
 
 import tools.jackson.databind.JsonNode;
 
@@ -50,25 +53,28 @@ public final class GitHubClient implements GitHubGateway {
 
 	@Override
 	public User user(String login) throws IOException {
-		User user = readUser(json(request(api.resolve("users/" + account(login)), "GET", provisioningToken(), null, 200)));
+		Operation operation = Operation.ACCOUNT_LOOKUP;
+		User user = readUser(json(request(operation, api.resolve("users/" + account(login)), "GET", provisioningToken(), null, 200), operation), operation);
 		if(!user.login().equalsIgnoreCase(login)) {
-			throw new IOException("GitHub account identity did not match the requested login");
+			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
 		return user;
 	}
 
 	@Override
 	public Repository repository(String fullName) throws IOException {
-		return readRepository(json(request(api.resolve("repos/" + repositoryPath(fullName)), "GET", provisioningToken(), null, 200)), fullName);
+		Operation operation = Operation.REPOSITORY_LOOKUP;
+		return readRepository(json(request(operation, api.resolve("repos/" + repositoryPath(fullName)), "GET", provisioningToken(), null, 200), operation), fullName, operation);
 	}
 
 	@Override
 	public Repository create(String template, String organization, String name) throws IOException {
+		Operation operation = Operation.CREATE_REPOSITORY;
 		String fullName = repositoryPath(account(organization) + "/" + name);
 		Map<String, Object> payload = Map.of("owner", organization, "name", name, "private", true, "include_all_branches", false);
-		Repository repository = readRepository(json(request(api.resolve("repos/" + repositoryPath(template) + "/generate"), "POST", provisioningToken(), payload, 201)), fullName);
+		Repository repository = readRepository(json(request(operation, api.resolve("repos/" + repositoryPath(template) + "/generate"), "POST", provisioningToken(), payload, 201), operation), fullName, operation);
 		if(!repository.privateRepository() || repository.fork()) {
-			throw new IOException("GitHub did not return a private independent template copy");
+			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
 		return repository;
 	}
@@ -79,12 +85,12 @@ public final class GitHubClient implements GitHubGateway {
 		if(!fullName.substring(0, fullName.indexOf('/')).equalsIgnoreCase(account(organization)) || team == null || !team.matches("[A-Za-z0-9][A-Za-z0-9-]{0,99}")) {
 			throw new IllegalArgumentException("Invalid staff team or repository organization");
 		}
-		request(api.resolve("orgs/" + organization + "/teams/" + team + "/repos/" + fullName), "PUT", provisioningToken(), Map.of("permission", "maintain"), 204);
+		request(Operation.GRANT_STAFF, api.resolve("orgs/" + organization + "/teams/" + team + "/repos/" + fullName), "PUT", provisioningToken(), Map.of("permission", "maintain"), 204);
 	}
 
 	@Override
 	public boolean invite(String repository, String login) throws IOException {
-		return request(api.resolve("repos/" + repositoryPath(repository) + "/collaborators/" + account(login)), "PUT", provisioningToken(), Map.of("permission", "push"), 201, 204).statusCode() == 201;
+		return request(Operation.INVITE_STUDENT, api.resolve("repos/" + repositoryPath(repository) + "/collaborators/" + account(login)), "PUT", provisioningToken(), Map.of("permission", "push"), 201, 204).statusCode() == 201;
 	}
 
 	@Override
@@ -98,12 +104,12 @@ public final class GitHubClient implements GitHubGateway {
 	public User authenticate(String code, String redirectUri, String codeVerifier) throws IOException {
 		requireOAuth();
 		String payload = form(Map.of("client_id", clientId, "client_secret", clientSecret, "code", code, "redirect_uri", redirectUri, "code_verifier", codeVerifier));
-		JsonNode response = json(request(oauth.resolve("login/oauth/access_token"), "POST", null, payload, 200));
+		JsonNode response = json(request(Operation.OAUTH_TOKEN_EXCHANGE, oauth.resolve("login/oauth/access_token"), "POST", null, payload, 200), Operation.OAUTH_TOKEN_EXCHANGE);
 		String token = response.path("access_token").asString("");
 		if(response.has("error") || token.isBlank() || token.length() > 1024 || !token.matches("[A-Za-z0-9_]+") || !"bearer".equalsIgnoreCase(response.path("token_type").asString(""))) {
-			throw new IOException("GitHub sign-in could not be completed");
+			throw new GitHubException(Operation.OAUTH_TOKEN_EXCHANGE, Category.AUTHENTICATION_REJECTED);
 		}
-		return readUser(json(request(api.resolve("user"), "GET", token, null, 200)));
+		return readUser(json(request(Operation.OAUTH_USER_LOOKUP, api.resolve("user"), "GET", token, null, 200), Operation.OAUTH_USER_LOOKUP), Operation.OAUTH_USER_LOOKUP);
 	}
 
 	private String provisioningToken() {
@@ -119,14 +125,14 @@ public final class GitHubClient implements GitHubGateway {
 		}
 	}
 
-	private HttpResponse<byte[]> request(URI uri, String method, String token, Object payload, int... allowedStatuses) throws IOException {
+	private HttpResponse<byte[]> request(Operation operation, URI uri, String method, String token, Object payload, int... allowedStatuses) throws IOException {
 		HttpRequest.Builder request = HttpRequest.newBuilder(uri).timeout(TIMEOUT).header("Accept", "application/json")
 				.header("User-Agent", "finmath-classroom").header("X-GitHub-Api-Version", "2022-11-28");
 		if(token != null) {
 			try {
 				request.header("Authorization", "Bearer " + token);
 			} catch(IllegalArgumentException exception) {
-				throw new IOException("Invalid GitHub credential format");
+				throw new GitHubException(operation, Category.CREDENTIAL_FORMAT);
 			}
 		}
 		if(payload == null) {
@@ -144,18 +150,21 @@ public final class GitHubClient implements GitHubGateway {
 					return result;
 				}
 			}
-			throw new IOException("GitHub request failed (HTTP " + result.statusCode() + ")");
+			throw new GitHubException(operation, Category.HTTP_STATUS, result.statusCode());
 		} catch(InterruptedException exception) {
 			response.cancel(true);
 			Thread.currentThread().interrupt();
-			throw new IOException("GitHub request was interrupted");
-		} catch(ExecutionException | TimeoutException exception) {
+			throw new GitHubException(operation, Category.INTERRUPTED);
+		} catch(TimeoutException exception) {
 			response.cancel(true);
-			throw new IOException("GitHub request failed or timed out; check its state before retrying creation");
+			throw new GitHubException(operation, Category.TIMEOUT);
+		} catch(ExecutionException exception) {
+			response.cancel(true);
+			throw new GitHubException(operation, exception.getCause() instanceof HttpTimeoutException ? Category.TIMEOUT : Category.TRANSPORT);
 		}
 	}
 
-	private static JsonNode json(HttpResponse<byte[]> response) throws IOException {
+	private static JsonNode json(HttpResponse<byte[]> response, Operation operation) throws IOException {
 		try {
 			JsonNode value = JsonFiles.MAPPER.readTree(response.body());
 			if(value != null && value.isObject()) {
@@ -164,27 +173,27 @@ public final class GitHubClient implements GitHubGateway {
 		} catch(RuntimeException exception) {
 			// Parser diagnostics can contain tokens or private GitHub response data.
 		}
-		throw new IOException("GitHub returned an invalid JSON response");
+		throw new GitHubException(operation, Category.INVALID_JSON);
 	}
 
-	private static User readUser(JsonNode value) throws IOException {
+	private static User readUser(JsonNode value, Operation operation) throws IOException {
 		String login = value.path("login").asString("");
 		if(!value.path("id").isIntegralNumber() || !value.path("id").canConvertToLong() || value.path("id").asLong() <= 0
 				|| !login.matches("[A-Za-z0-9][A-Za-z0-9-]{0,38}") || !"User".equals(value.path("type").asString(""))) {
-			throw new IOException("GitHub returned an invalid student account");
+			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
 		return new User(value.path("id").asLong(), login);
 	}
 
-	private static Repository readRepository(JsonNode value, String expectedName) throws IOException {
+	private static Repository readRepository(JsonNode value, String expectedName, Operation operation) throws IOException {
 		String fullName = value.path("full_name").asString("");
 		String branch = value.path("default_branch").asString("");
 		if(!value.path("id").isIntegralNumber() || !value.path("id").canConvertToLong() || value.path("id").asLong() <= 0
 				|| !fullName.equalsIgnoreCase(expectedName) || !value.path("private").isBoolean() || !value.path("fork").isBoolean()
-				|| !value.path("is_template").isBoolean() || branch.isBlank() || branch.length() > 255) {
-			throw new IOException("GitHub returned an invalid or mismatched repository identity");
+				|| (value.has("is_template") && !value.path("is_template").isBoolean()) || branch.isBlank() || branch.length() > 255) {
+			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
-		return new Repository(value.path("id").asLong(), fullName, value.path("private").asBoolean(), value.path("fork").asBoolean(), value.path("is_template").asBoolean(), branch);
+		return new Repository(value.path("id").asLong(), fullName, value.path("private").asBoolean(), value.path("fork").asBoolean(), value.path("is_template").asBoolean(false), branch);
 	}
 
 	private static String account(String login) {
