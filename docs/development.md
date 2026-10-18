@@ -162,3 +162,19 @@ all 14 template workflows changed only their action reference, apart from commen
 No Java code changed, so Maven verification above was not repeated. The initial
 `v1.0.0` release tag and moving `v1` tag are prepared locally; publication and a live
 SNAPSHOT-update pilot remain pending.
+
+Deployment preparation on 2026-10-19 added a systemd service, a credential-free
+environment example and an [Ubuntu/Plesk guide](deployment.md). `mvn -B -ntp verify`
+passed all 209 tests and rebuilt the JAR. Java 17 CLI checks covered help,
+configuration validation, import and listing against disposable examples. A local
+Java 17 server returned health/readiness and the acceptance page, with Secure,
+HttpOnly and SameSite=Lax session cookies for an HTTPS public origin. This used
+placeholder credentials and made no GitHub requests. The earlier sandboxed run
+could not open test sockets or attach Mockito; the permitted rerun passed.
+The operator subsequently installed the service on Ubuntu 24.04 with Java 21,
+imported the teaching configuration and confirmed local readiness. Independent
+public checks passed for HTTPS health/readiness and the acceptance page, an
+HTTP-to-HTTPS redirect, and Secure/HttpOnly/SameSite=Lax session cookies. These
+checks establish the serving path; live GitHub sign-in, provisioning and learner
+access still need a complete browser pilot. Host-specific log sanitization and
+rate limiting also remain to be checked before distributing course links.

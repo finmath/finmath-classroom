@@ -186,7 +186,8 @@ configure its GitHub username before import. See the reference for
 ## 4. Share an assignment, then add Moodle integration
 
 For other users, host the service at a public HTTPS origin and update the OAuth
-application's callback accordingly. A normal Moodle URL resource can link to the
+application's callback accordingly. The [Ubuntu/Plesk deployment guide](docs/deployment.md)
+provides a systemd service and the server setup steps. A normal Moodle URL resource can link to the
 assignment's `/accept/<lecture>/<assignment>` page immediately; students use the
 shared-key flow. That link does not supply trusted Moodle identity.
 

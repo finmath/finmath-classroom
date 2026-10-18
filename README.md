@@ -87,6 +87,8 @@ keep their own Git histories and builds.
 
 - [Registration reference](docs/registration.md): configuration fields, environment
   variables, GitHub permissions, Moodle setup and recovery.
+- [Ubuntu/Plesk deployment](docs/deployment.md): private service setup, HTTPS,
+  initial import, verification and backups.
 - [Other tools](docs/tools.md): local scoring, CSV collection and optional
   Maven/IntelliJ workspace generation.
 - [Autograding migration](docs/autograding.md): replacement GitHub action, rubric

@@ -156,6 +156,17 @@ and invites the student with `write` access. Students remain outside collaborato
 The service does not change organization membership or base permissions; configure
 the organization's base permissions appropriately before a pilot.
 
+The acceptance error **"The instructor must enable the template and check its
+default branch"** means the template preflight failed. For shared-key acceptance,
+the registration keys have already passed validation. Check the template flag
+and its current default branch on GitHub; an assignment configured with `master`
+will fail if the template uses `main`. This check happens before repository
+creation. Correct these settings before the initial import. For an already
+imported assignment, changing the JSON alone is insufficient: the branch is
+frozen in SQLite too. Use a reviewed migration that preserves registrations;
+inspect any existing or uncertain repositories before changing their expected
+branch. After correction, the student can use **Retry repository setup**.
+
 The username is lowercase and reflects the account at first acceptance. Recorded
 repository names remain unchanged on retries or username changes, including names
 created by older versions. New names must fit within 100 characters; use a prefix
@@ -191,6 +202,9 @@ Share these links through your course's Moodle page: they contain the shared
 registration keys. The original URL may remain in browser history or proxy logs.
 
 ### Hosting
+
+For Ubuntu with Plesk, use the [deployment guide](deployment.md) and its systemd
+service and environment examples.
 
 Run one service instance behind an HTTPS reverse proxy for public use, with request
 limits, registration rate limiting and monitoring. The server binds to loopback by
