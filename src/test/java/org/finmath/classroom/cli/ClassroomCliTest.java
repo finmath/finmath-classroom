@@ -7,10 +7,17 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.Connection;
+import java.sql.DriverManager;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
 
 import org.finmath.classroom.io.JsonFiles;
+import org.finmath.classroom.registration.EnrollmentStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+
+import tools.jackson.databind.JsonNode;
 
 class ClassroomCliTest {
     @TempDir Path directory;
@@ -132,6 +139,8 @@ class ClassroomCliTest {
 		createRegistrationConfiguration();
 		assertEquals(2, run("registration", "students", "--data", directory.toString()));
 		assertEquals(2, run("registration", "list", "--data", directory.toString()));
+		assertEquals(2, run("registration", "list", "--data", directory.toString(), "--format", "table"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1"));
 		assertFalse(Files.exists(directory.resolve("classroom.db")));
 		assertEquals(2, run("registration", "list", "--data", directory.toString(), "--assignment", "exercise"));
 		assertEquals(2, run("registration", "assignments", "--data", directory.toString(), "--lecture", "unknown"));
@@ -160,6 +169,86 @@ class ClassroomCliTest {
 		assertEquals(2, run("registration", "reconcile", "--data", directory.toString(), "--lecture", "lecture",
 				"--assignment", "exercise", "--student", "s1", "--repository-id", "invalid"));
 		assertFalse(Files.exists(directory.resolve("classroom.db")));
+	}
+
+	@Test void testRegistrationTableAndDefaultJsonAreReadOnly() throws Exception {
+		String name = "Alice\nExample\t" + (char)27 + "[31m" + Character.toString(0x202E) + Character.toString(0x2028) + "!";
+		createAcceptedRegistration(name);
+		byte[] database = Files.readAllBytes(directory.resolve("classroom.db"));
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		assertEquals(0, ClassroomCli.run(new String[] {"registration", "list", "--data", directory.toString()}, new PrintStream(output), System.err));
+		String defaultJson = output.toString(StandardCharsets.UTF_8);
+		JsonNode registrations = JsonFiles.MAPPER.readTree(defaultJson);
+		assertTrue(registrations.isArray());
+		assertEquals(1, registrations.size());
+		assertEquals(name, registrations.get(0).path("name").asString());
+		assertEquals("s1", registrations.get(0).path("studentId").asString());
+		output.reset();
+		assertEquals(0, ClassroomCli.run(new String[] {"registration", "list", "--data", directory.toString(), "--format", "json"}, new PrintStream(output), System.err));
+		assertEquals(defaultJson, output.toString(StandardCharsets.UTF_8));
+		output.reset();
+		assertEquals(0, ClassroomCli.run(new String[] {"registration", "list", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--format", "table"}, new PrintStream(output), System.err));
+		String table = output.toString(StandardCharsets.UTF_8);
+		assertEquals(2, table.lines().count());
+		assertTrue(table.startsWith("LECTURE"));
+		assertTrue(table.contains("STUDENT ID"));
+		assertTrue(table.contains("Alice Example  [31m  !"));
+		assertTrue(table.contains("org/term-exercise-alice-42"));
+		assertFalse(table.contains("\t"));
+		assertFalse(table.contains(Character.toString(27)));
+		assertFalse(table.contains(Character.toString(0x202E)));
+		assertFalse(table.contains(Character.toString(0x2028)));
+		assertEquals(2, run("registration", "list", "--data", directory.toString(), "--format", "csv"));
+		assertArrayEquals(database, Files.readAllBytes(directory.resolve("classroom.db")));
+	}
+
+	@Test void testRegistrationDeleteRequiresExactSelectors() throws Exception {
+		createAcceptedRegistration("Alice");
+		byte[] database = Files.readAllBytes(directory.resolve("classroom.db"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString()));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--student", "s1"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--assignment", "exercise", "--student", "s1"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", ""));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "unknown"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1", "--force"));
+		assertArrayEquals(database, Files.readAllBytes(directory.resolve("classroom.db")));
+		ByteArrayOutputStream output = new ByteArrayOutputStream();
+		assertEquals(0, ClassroomCli.run(new String[] {"registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1"}, new PrintStream(output), System.err));
+		JsonNode deleted = JsonFiles.MAPPER.readTree(output.toString(StandardCharsets.UTF_8)).path("deleted");
+		assertEquals("s1", deleted.path("studentId").asString());
+		assertEquals("org/term-exercise-alice-42", deleted.path("repository").asString());
+		EnrollmentStore store = EnrollmentStore.readOnly(directory.resolve("classroom.db"));
+		assertTrue(store.list(null, null).isEmpty());
+		assertEquals(1, store.students(null).size());
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1"));
+	}
+
+	@Test void testRegistrationDeleteRefusesBusyRowsAndChangedConfiguration() throws Exception {
+		createAcceptedRegistration("Alice");
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE enrollments SET busy=1");
+		}
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1"));
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE enrollments SET busy=0");
+		}
+		Path assignment = directory.resolve("lectures/lecture/assignments/exercise/assignment.json");
+		Files.writeString(assignment, Files.readString(assignment).replace("org/template", "org/different-template"));
+		assertEquals(2, run("registration", "delete", "--data", directory.toString(), "--lecture", "lecture", "--assignment", "exercise", "--student", "s1"));
+		assertEquals(1, EnrollmentStore.readOnly(directory.resolve("classroom.db")).list(null, null).size());
+	}
+
+	private void createAcceptedRegistration(String name) throws Exception {
+		createRegistrationConfiguration();
+		assertEquals(0, run("registration", "import", "--data", directory.toString()));
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE students SET github_id=42,github_login='alice' WHERE id='s1'");
+			try(PreparedStatement insert = connection.prepareStatement("INSERT INTO enrollments (lecture_id,assignment_id,student_id,accepted_name,identity_source,identity_subject,accepted_at,declaration_version,declaration,repository,repository_id,status) VALUES ('lecture','exercise','s1',?,'self','42','2026-10-01T10:00:00Z','1','Original declaration','org/term-exercise-alice-42',101,'active')")) {
+				insert.setString(1, name);
+				insert.executeUpdate();
+			}
+		}
 	}
 
 	private void createRegistrationConfiguration() throws Exception {

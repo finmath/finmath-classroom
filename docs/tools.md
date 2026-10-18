@@ -10,7 +10,7 @@ Score existing JUnit XML reports against a JSON rubric:
 
 ```sh
 java -jar target/finmath-classroom.jar score \
-  --rubric tools/classroom/rubric.example.json \
+  --rubric examples/grading/rubric.json \
   --reports /path/to/surefire-reports \
   --output /private/service/feedback.json
 ```
@@ -20,6 +20,8 @@ The output directory must exist. The command reads reports and does not execute
 tests or student code. Exit codes are 0 for all passed, 1 for failed/incomplete,
 and 2 for errors. Check the exit status before using an output; a rejected input
 can leave an older output file in place.
+
+Shared assignment-workflow distribution has not yet been implemented.
 
 ## Trusted-result CSV collection
 
@@ -84,18 +86,3 @@ runs all selected modules, so test individual assignments in their own directori
 Without explicit options, the generator uses `workspace/modules.json`, the parent
 of the current directory as the repository root, and `../finmath-lectures` as output.
 See [Maven aggregation](https://maven.apache.org/guides/introduction/introduction-to-the-pom.html).
-
-## Python reference
-
-The original tools in `tools/classroom/` remain as migration specifications,
-including push capture and deadline manifests that have not been ported to Java.
-They are not required by the Java CLI or server. Optional reference checks require
-Python 3.10 or newer:
-
-```sh
-python3 -m unittest discover -s tools/classroom -p 'test_*.py'
-python3 -m unittest discover -s tools -p 'test_workspace.py'
-```
-
-`tools/classroom/templates/feedback.yml.example` is an inactive workflow example.
-Shared assignment-workflow distribution has not yet been implemented.

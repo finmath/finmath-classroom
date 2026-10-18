@@ -21,6 +21,7 @@ import org.finmath.classroom.registration.ClassroomConfig;
 import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
 import org.finmath.classroom.registration.EnrollmentStore;
+import org.finmath.classroom.registration.EnrollmentStore.Enrollment;
 import org.finmath.classroom.registration.GitHubClient;
 import org.finmath.classroom.registration.RegistrationService;
 import org.finmath.classroom.workspace.WorkspaceGenerator;
@@ -111,17 +112,27 @@ public final class ClassroomCli {
 
 	private static int registration(String[] args, PrintStream out) throws IOException {
 		if(args.length == 0) {
-			throw new IllegalArgumentException("Choose a registration command: check, import, assignments, students, list or reconcile");
+			throw new IllegalArgumentException("Choose a registration command: check, import, assignments, students, list, delete or reconcile");
 		}
 		Set<String> acceptedOptions = switch(args[0]) {
 			case "check", "import" -> Set.of("--data");
 			case "assignments", "students" -> Set.of("--data", "--lecture");
-			case "list" -> Set.of("--data", "--lecture", "--assignment");
+			case "list" -> Set.of("--data", "--lecture", "--assignment", "--format");
+			case "delete" -> Set.of("--data", "--lecture", "--assignment", "--student");
 			case "reconcile" -> Set.of("--data", "--lecture", "--assignment", "--student", "--repository-id");
 			default -> throw new IllegalArgumentException("Unknown registration command");
 		};
 		Map<String, String> options = options(args, acceptedOptions, Set.of());
 		Path dataRoot = required(options, "--data");
+		String format = options.getOrDefault("--format", "json");
+		if(!Set.of("json", "table").contains(format)) throw new IllegalArgumentException("--format must be json or table");
+		if(args[0].equals("delete") || args[0].equals("reconcile")) {
+			for(String required : List.of("--lecture", "--assignment", "--student")) {
+				if(!options.containsKey(required) || options.get(required).isBlank()) {
+					throw new IllegalArgumentException("Missing required option " + required);
+				}
+			}
+		}
 		ClassroomConfig config = ClassroomConfig.load(dataRoot);
 		String lectureId = options.get("--lecture");
 		String assignmentId = options.get("--assignment");
@@ -143,17 +154,28 @@ public final class ClassroomCli {
 				result = configurationSummary(config);
 			}
 			case "assignments" -> result = assignments(config, lectureId);
-			case "students", "list" -> {
+			case "students" -> {
 				EnrollmentStore store = EnrollmentStore.readOnly(dataRoot.resolve("classroom.db"));
 				store.verifyConfiguration(config);
-				result = args[0].equals("students") ? store.students(lectureId) : store.list(lectureId, assignmentId);
+				result = store.students(lectureId);
+			}
+			case "list" -> {
+				EnrollmentStore store = EnrollmentStore.readOnly(dataRoot.resolve("classroom.db"));
+				store.verifyConfiguration(config);
+				List<Enrollment> enrollments = store.list(lectureId, assignmentId);
+				if(format.equals("table")) {
+					printRegistrations(enrollments, out);
+					return 0;
+				}
+				result = enrollments;
+			}
+			case "delete" -> {
+				EnrollmentStore store = new EnrollmentStore(dataRoot.resolve("classroom.db"), false);
+				store.verifyConfiguration(config);
+				result = Map.of("deleted", store.delete(lectureId, assignmentId, options.get("--student")));
 			}
 			case "reconcile" -> {
-				for(String required : Set.of("--lecture", "--assignment", "--student", "--repository-id")) {
-					if(!options.containsKey(required) || options.get(required).isBlank()) {
-						throw new IllegalArgumentException("Missing required option " + required);
-					}
-				}
+				if(!options.containsKey("--repository-id") || options.get("--repository-id").isBlank()) throw new IllegalArgumentException("Missing required option --repository-id");
 				long repositoryId;
 				try {
 					repositoryId = Long.parseLong(options.get("--repository-id"));
@@ -170,6 +192,28 @@ public final class ClassroomCli {
 		}
 		out.println(JsonFiles.MAPPER.writeValueAsString(result));
 		return 0;
+	}
+
+	private static void printRegistrations(List<Enrollment> enrollments, PrintStream out) {
+		List<String[]> rows = new ArrayList<>();
+		rows.add(new String[] {"LECTURE", "ASSIGNMENT", "STUDENT ID", "NAME", "GITHUB", "STATUS", "REPOSITORY"});
+		for(Enrollment enrollment : enrollments) {
+			rows.add(new String[] {enrollment.lectureId(), enrollment.assignmentId(), enrollment.studentId(), enrollment.name(), enrollment.githubLogin(), enrollment.status(), enrollment.repository()});
+		}
+		int[] widths = new int[7];
+		for(String[] row : rows) {
+			for(int index=0; index<row.length; index++) {
+				row[index] = row[index] == null ? "" : row[index].replaceAll("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]", " ");
+				widths[index] = Math.max(widths[index], row[index].length());
+			}
+		}
+		for(String[] row : rows) {
+			for(int index=0; index<row.length; index++) {
+				out.print(row[index]);
+				if(index + 1 < row.length) out.print(" ".repeat(widths[index] - row[index].length() + 2));
+			}
+			out.println();
+		}
 	}
 
 	private static GitHubClient githubClient() {
@@ -243,13 +287,15 @@ public final class ClassroomCli {
                   registration import --data DIR
                   registration assignments --data DIR [--lecture ID]
                   registration students --data DIR [--lecture ID]
-                  registration list --data DIR [--lecture ID] [--assignment ID]
+                  registration list --data DIR [--lecture ID] [--assignment ID] [--format json|table]
+                  registration delete --data DIR --lecture ID --assignment ID --student ID
                   registration reconcile --data DIR --lecture ID --assignment ID --student ID --repository-id NUMBER
                   serve [Spring Boot options]
 
                 Scoring is feedback only. Collection requires trusted final-runner results.
                 Registration configuration lives in DIR/lectures; its database is DIR/classroom.db.
                 Check and listing commands are read-only. Import pins supplied GitHub usernames using read-only API calls.
+                Delete removes one acceptance only. Stop the service and back up first; GitHub repositories are retained.
                 Before reconcile, stop the service and inspect the repository's identity and contents. It records the inspected ID for retry.
                 Enrollment requires registration configuration and GitHub credentials; the server binds to loopback by default.
                 Authoritative final grading is not implemented.

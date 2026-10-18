@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
@@ -88,7 +89,7 @@ public final class EnrollmentStore {
 				}
 			}
 		} catch(SQLException exception) {
-			throw new IOException("Cannot open registration database; use a new Java database, not the Python reference database.", exception);
+			throw new IOException("Cannot open registration database; initialize a compatible database with registration import.", exception);
 		}
 	}
 
@@ -187,14 +188,45 @@ public final class EnrollmentStore {
 				execute(connection, "INSERT INTO students VALUES (?,?,?,?,?,?,?)", lecture.id(), studentId, identity.name(), account.id(), account.login(), identity.source(), identity.subject());
 			}
 			execute(connection, "UPDATE students SET github_login=? WHERE lecture_id=? AND id=?", account.login(), lecture.id(), studentId);
-			String repository = lecture.organization() + "/" + assignment.repositoryPrefix() + "-" + account.id();
-			execute(connection, "INSERT INTO enrollments (lecture_id,assignment_id,student_id,accepted_name,identity_source,identity_subject,accepted_at,declaration_version,declaration,repository,status) VALUES (?,?,?,?,?,?,?,?,?,?,'creating') ON CONFLICT(lecture_id,assignment_id,student_id) DO NOTHING",
-					lecture.id(), assignment.id(), studentId, identity.name(), identity.source(), identity.subject(), now.toString(), RegistrationService.DECLARATION_VERSION, RegistrationService.DECLARATION, repository);
-			if(execute(connection, "UPDATE enrollments SET busy=1,problem=NULL WHERE lecture_id=? AND assignment_id=? AND student_id=? AND busy=0 AND status!='needs_attention'", lecture.id(), assignment.id(), studentId) != 1) {
+			boolean created;
+			try(PreparedStatement query = prepare(connection, "SELECT 1 FROM enrollments WHERE lecture_id=? AND assignment_id=? AND student_id=?", lecture.id(), assignment.id(), studentId); ResultSet row = query.executeQuery()) {
+				created = !row.next();
+			}
+			if(created) {
+				String name = assignment.repositoryPrefix() + "-" + account.login().toLowerCase(Locale.ROOT) + "-" + account.id();
+				if(name.length() > 100) throw new IllegalArgumentException("The repository name exceeds 100 characters. Ask the instructor to use a shorter repository prefix.");
+				execute(connection, "INSERT INTO enrollments (lecture_id,assignment_id,student_id,accepted_name,identity_source,identity_subject,accepted_at,declaration_version,declaration,repository,status) VALUES (?,?,?,?,?,?,?,?,?,?,'creating')",
+						lecture.id(), assignment.id(), studentId, identity.name(), identity.source(), identity.subject(), now.toString(), RegistrationService.DECLARATION_VERSION, RegistrationService.DECLARATION, lecture.organization() + "/" + name);
+			}
+			return claim(connection, lecture.id(), assignment.id(), studentId, created);
+		});
+	}
+
+	/** Reserves only an existing acceptance for this account, preserving its identity and declaration. */
+	Enrollment retry(Lecture lecture, Assignment assignment, User account) throws IOException {
+		return transaction(connection -> {
+			checkDefinition(connection, lecture.id(), assignment.id(), definition(lecture, assignment));
+			String studentId;
+			try(PreparedStatement query = prepare(connection, SELECT + " WHERE e.lecture_id=? AND e.assignment_id=? AND s.github_id=?", lecture.id(), assignment.id(), account.id()); ResultSet row = query.executeQuery()) {
+				if(!row.next()) throw new IllegalArgumentException("Accept this assignment before retrying.");
+				studentId = row.getString("student_id");
+			}
+			execute(connection, "UPDATE students SET github_login=? WHERE lecture_id=? AND id=?", account.login(), lecture.id(), studentId);
+			return claim(connection, lecture.id(), assignment.id(), studentId, false);
+		});
+	}
+
+	private static Enrollment claim(Connection connection, String lecture, String assignment, String student, boolean created) throws SQLException {
+		try(PreparedStatement query = prepare(connection, SELECT + " WHERE e.lecture_id=? AND e.assignment_id=? AND e.student_id=?", lecture, assignment, student); ResultSet row = query.executeQuery()) {
+			if(!row.next()) throw new IllegalArgumentException("Unknown registration.");
+			String status = row.getString("status");
+			if(row.getInt("busy") != 0 || !(status.equals("active") || status.equals("retryable") || status.equals("invitation_pending") || created && status.equals("creating"))) {
 				throw new IllegalArgumentException("Repository creation is in progress or needs instructor review. No second repository will be created.");
 			}
-			return enrollment(connection, lecture.id(), assignment.id(), studentId);
-		});
+			if(status.equals("active")) return readEnrollment(row);
+		}
+		execute(connection, "UPDATE enrollments SET busy=1,problem=NULL WHERE lecture_id=? AND assignment_id=? AND student_id=?", lecture, assignment, student);
+		return enrollment(connection, lecture, assignment, student);
 	}
 
 	void recordRepository(Enrollment enrollment, long repositoryId) throws IOException {
@@ -220,6 +252,25 @@ public final class EnrollmentStore {
 		} catch(SQLException exception) {
 			throw new IOException("Cannot list registrations.", exception);
 		}
+	}
+
+	/** Deletes one acceptance and its declaration, retaining the student and all other assignments. Never contacts GitHub. */
+	public Enrollment delete(String lectureId, String assignmentId, String studentId) throws IOException {
+		if(lectureId == null || lectureId.isBlank() || assignmentId == null || assignmentId.isBlank() || studentId == null || studentId.isBlank()) {
+			throw new IllegalArgumentException("Lecture, assignment and student IDs are required to delete a registration.");
+		}
+		return transaction(connection -> {
+			Enrollment deleted;
+			try(PreparedStatement query = prepare(connection, SELECT + " WHERE e.lecture_id=? AND e.assignment_id=? AND e.student_id=?", lectureId, assignmentId, studentId); ResultSet row = query.executeQuery()) {
+				if(!row.next()) throw new IllegalArgumentException("Unknown registration.");
+				if(row.getInt("busy") != 0 || row.getString("status").equals("creating")) {
+					throw new IllegalArgumentException("Registration has an operation in progress. Resolve it before deleting.");
+				}
+				deleted = readEnrollment(row);
+			}
+			execute(connection, "DELETE FROM enrollments WHERE lecture_id=? AND assignment_id=? AND student_id=?", lectureId, assignmentId, studentId);
+			return deleted;
+		});
 	}
 
 	/** Lists imported and self-registered students, including students without an accepted assignment. */

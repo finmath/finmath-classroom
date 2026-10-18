@@ -303,8 +303,8 @@ class FeedbackScorerTest {
     }
 
     @Test
-    void retainedExampleRubricHasFiveTestsAndTwentyTwoPoints() throws IOException {
-        JsonNode result = FeedbackScorer.score(Path.of("tools/classroom/rubric.example.json"), reports);
+    void exampleRubricHasFiveTestsAndTwentyTwoPoints() throws IOException {
+        JsonNode result = FeedbackScorer.score(Path.of("examples/grading/rubric.json"), reports);
         assertEquals(5, result.get("cases").size());
         assertEquals(22, result.get("max_score").asInt());
     }

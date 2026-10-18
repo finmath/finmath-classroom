@@ -44,6 +44,8 @@ import org.finmath.classroom.registration.RegistrationService;
 import org.finmath.classroom.registration.RegistrationService.Identity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.oauth2.jwt.Jwt;
@@ -62,7 +64,9 @@ class RegistrationControllerTest {
 	void setup() {
 		config = new ClassroomConfig(List.of(new Lecture("lecture", "Lecture <one>", "school", "staff", "lecture-key",
 				List.of(new Student("private-id", "Private roster name", null)), List.of(new Assignment("task", "Task", "school/template", "prefix", "main", null,
-						"assignment-key", "course-1", "resource-1")))));
+						"assignment-key", "course-1", "resource-1"), new Assignment("next", "Next task", "school/template", "next", "main", null,
+						"next-secret", null, null))), new Lecture("other", "Other lecture", "school", "staff", "other-secret", List.of(),
+						List.of(new Assignment("task", "Other task", "school/template", "other", "main", null, "other-task-secret", null, null)))));
 		registration = mock(RegistrationService.class);
 		github = mock(GitHubGateway.class);
 		when(registration.config()).thenReturn(config);
@@ -93,6 +97,9 @@ class RegistrationControllerTest {
 	@Test
 	void testGithubCallbackRequiresOneUseStateAndUsesPkce() throws Exception {
 		MockHttpSession session = session();
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "url-lecture-key").param("assignmentKey", "url-assignment-key"))
+				.andExpect(status().isSeeOther()).andExpect(header().string("Location", "/accept/lecture/task"))
+				.andExpect(header().string("Cache-Control", "no-store")).andExpect(header().string("Referrer-Policy", "no-referrer"));
 		when(github.authorizationUrl(anyString(), anyString(), anyString())).thenReturn("https://github.com/login/oauth/authorize");
 		mvc.perform(post("/auth/github/start").session(session).param("csrf", (String) session.getAttribute("csrf"))
 				.param("lectureId", "lecture").param("assignmentId", "task")).andExpect(status().isSeeOther());
@@ -112,6 +119,9 @@ class RegistrationControllerTest {
 		verify(github).authenticate(eq("code"), eq("https://class.example/auth/github/callback"), verifier.capture());
 		assertEquals(challenge.getValue(), Base64.getUrlEncoder().withoutPadding().encodeToString(
 				MessageDigest.getInstance("SHA-256").digest(verifier.getValue().getBytes(StandardCharsets.US_ASCII))));
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("name='lectureKey' value='url-lecture-key'")))
+				.andExpect(content().string(containsString("name='assignmentKey' value='url-assignment-key'")));
 		mvc.perform(get("/auth/github/callback").session(session).param("state", state.getValue()).param("code", "code"))
 				.andExpect(status().isForbidden());
 	}
@@ -125,9 +135,140 @@ class RegistrationControllerTest {
 				"student", "self", Instant.now().toString(), 500L, "school/task-s1", "https://github.com/school/task-s1", "invitation_pending", null));
 		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
 				.andExpect(content().string(containsString("https://github.com/school/task-s1")))
-				.andExpect(content().string(containsString("Accept the GitHub repository invitation")));
+				.andExpect(content().string(containsString("Accept the GitHub repository invitation")))
+				.andExpect(content().string(containsString("Refresh access status")))
+				.andExpect(content().string(containsString("action='/accept/lecture/task/retry'")))
+				.andExpect(content().string(not(containsString("name='name'"))))
+				.andExpect(content().string(not(containsString("name='lectureKey'"))))
+				.andExpect(content().string(not(containsString("name='declaration'"))));
 		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+		verify(registration, never()).retry(anyString(), anyString(), any());
 		verifyNoInteractions(github);
+	}
+
+	@ParameterizedTest
+	@CsvSource({ "active,Repository access is active.,false", "retryable,Repository setup is incomplete.,true",
+			"creating,Repository setup is in progress.,false", "needs_attention,Repository setup needs instructor review.,false" })
+	void testRecordedAcceptanceReplacesFormForEveryProvisioningState(String provisioning, String message, boolean retry) throws Exception {
+		MockHttpSession session = session();
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		when(registration.enrollment("lecture", "task", user)).thenReturn(new Enrollment("lecture", "task", "s1", "<Alex>", 123,
+				"student", "self", "2026-10-17T10:00:00Z", null, "school/task-s1", null, provisioning, null));
+		MvcResult result = mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("&lt;Alex&gt;"))).andExpect(content().string(containsString("2026-10-17T10:00:00Z")))
+				.andExpect(content().string(containsString(message)))
+				.andExpect(content().string(containsString("Disconnect GitHub account")))
+				.andExpect(content().string(not(containsString("name='name'"))))
+				.andExpect(content().string(not(containsString("name='lectureKey'"))))
+				.andExpect(content().string(not(containsString("name='assignmentKey'"))))
+				.andExpect(content().string(not(containsString("name='declaration'")))).andReturn();
+		assertEquals(retry, result.getResponse().getContentAsString().contains("Retry repository setup"));
+		mvc.perform(get("/accept/lecture/next").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("name='name'"))).andExpect(content().string(containsString("name='declaration'")))
+				.andExpect(content().string(containsString("name='lectureKey' value=''"))).andExpect(content().string(containsString("name='assignmentKey' value=''")));
+		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+		verify(registration, never()).retry(anyString(), anyString(), any());
+		verifyNoInteractions(github);
+	}
+
+	@Test
+	void testExistingOwnerCanReadMoodleOnlyAssignmentWithoutNewLaunch() throws Exception {
+		Lecture lecture = config.lecture("lecture");
+		when(registration.config()).thenReturn(new ClassroomConfig(List.of(new Lecture(lecture.id(), lecture.title(), lecture.organization(),
+				lecture.staffTeam(), null, lecture.students(), lecture.assignments()))));
+		MockHttpSession session = new MockHttpSession();
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		when(registration.enrollment("lecture", "task", user)).thenReturn(new Enrollment("lecture", "task", "s1", "Alex", 123,
+				"student", "moodle:https://moodle.example", Instant.now().toString(), 500L, "school/task-s1", "https://github.com/school/task-s1", "active", null));
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("https://github.com/school/task-s1")))
+				.andExpect(content().string(not(containsString("name='declaration'"))));
+		session.setAttribute("github", new User(999, "unregistered"));
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isForbidden());
+		verifyNoInteractions(github);
+	}
+
+	@Test
+	void testRetryRequiresCsrfAndUsesOnlyAuthenticatedAccount() throws Exception {
+		MockHttpSession session = session();
+		String csrf = (String) session.getAttribute("csrf");
+		mvc.perform(post("/accept/lecture/task/retry").session(session).param("csrf", csrf)).andExpect(status().isForbidden());
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		mvc.perform(post("/accept/lecture/task/retry").session(session).param("csrf", "forged")).andExpect(status().isForbidden());
+		verify(registration, never()).retry(anyString(), anyString(), any());
+		mvc.perform(post("/accept/lecture/task/retry").session(session).param("csrf", csrf).param("name", "Someone else")
+				.param("githubLogin", "other-user")).andExpect(status().isSeeOther()).andExpect(header().string("Location", "/accept/lecture/task"));
+		verify(registration).retry("lecture", "task", user);
+		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+	}
+
+	@Test
+	void testUrlPrefillIsEscapedAndScopedToAssignmentAndLecture() throws Exception {
+		MockHttpSession session = session();
+		session.setAttribute("github", new User(123, "student"));
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "'<script>").param("assignmentKey", "\"&<>"))
+				.andExpect(status().isSeeOther()).andExpect(header().string("Location", "/accept/lecture/task"));
+		mvc.perform(get("/accept/lecture/next").session(session).param("assignmentKey", "next-only"))
+				.andExpect(status().isSeeOther()).andExpect(header().string("Location", "/accept/lecture/next"));
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value='&#39;&lt;script&gt;'")))
+				.andExpect(content().string(containsString("name='assignmentKey' value='&quot;&amp;&lt;&gt;'")));
+		mvc.perform(get("/accept/lecture/next").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")))
+				.andExpect(content().string(containsString("name='assignmentKey' value='next-only'")));
+		mvc.perform(get("/accept/other/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")))
+				.andExpect(content().string(containsString("name='assignmentKey' value=''")));
+		verifyNoInteractions(github);
+		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+	}
+
+	@Test
+	void testPartialAndEmptyUrlsReplacePreviousPrefillAndRejectDuplicateOrOversizedKeys() throws Exception {
+		MockHttpSession session = session();
+		session.setAttribute("github", new User(123, "student"));
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "old-lecture").param("assignmentKey", "old-assignment"))
+				.andExpect(status().isSeeOther());
+		mvc.perform(get("/accept/lecture/task").session(session).param("assignmentKey", "new-assignment")).andExpect(status().isSeeOther());
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")))
+				.andExpect(content().string(containsString("name='assignmentKey' value='new-assignment'")));
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "")).andExpect(status().isSeeOther());
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")))
+				.andExpect(content().string(containsString("name='assignmentKey' value=''")));
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "a", "b")).andExpect(status().isBadRequest());
+		mvc.perform(get("/accept/lecture/task").session(session).param("assignmentKey", "x".repeat(1025))).andExpect(status().isBadRequest());
+		verifyNoInteractions(github);
+	}
+
+	@Test
+	void testSubmittedKeysAndDeclarationRemainRequiredAndPrefillIsClearedAfterSuccessOrDisconnect() throws Exception {
+		MockHttpSession session = session();
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		String csrf = (String) session.getAttribute("csrf");
+		Identity identity = new Identity("self", "123", "Alex");
+		mvc.perform(get("/accept/lecture/task").session(session).param("lectureKey", "from-url").param("assignmentKey", "from-url"))
+				.andExpect(status().isSeeOther());
+		mvc.perform(get("/accept/lecture/next").session(session).param("lectureKey", "other-url")).andExpect(status().isSeeOther());
+		when(registration.accept("lecture", "task", identity, user, "wrong", "wrong", true)).thenThrow(new IllegalArgumentException("Incorrect keys"));
+		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", csrf).param("name", "Alex")
+				.param("lectureKey", "wrong").param("assignmentKey", "wrong").param("declaration", "true")).andExpect(status().isBadRequest());
+		verify(registration).accept("lecture", "task", identity, user, "wrong", "wrong", true);
+		when(registration.accept("lecture", "task", identity, user, "manual-lecture", "manual-assignment", false))
+				.thenThrow(new IllegalArgumentException("Confirm the declaration"));
+		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", csrf).param("name", "Alex")
+				.param("lectureKey", "manual-lecture").param("assignmentKey", "manual-assignment")).andExpect(status().isBadRequest());
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value='from-url'")));
+		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", csrf).param("name", "Alex").param("lectureKey", "manual-lecture")
+				.param("assignmentKey", "manual-assignment").param("declaration", "true")).andExpect(status().isSeeOther());
+		verify(registration).accept("lecture", "task", identity, user, "manual-lecture", "manual-assignment", true);
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")))
+				.andExpect(content().string(containsString("name='assignmentKey' value=''")));
+		mvc.perform(get("/accept/lecture/next").session(session)).andExpect(content().string(containsString("name='lectureKey' value='other-url'")));
+		mvc.perform(post("/auth/github/logout").session(session).param("csrf", csrf).param("lectureId", "lecture").param("assignmentId", "task"))
+				.andExpect(status().isSeeOther());
+		session.setAttribute("github", user);
+		mvc.perform(get("/accept/lecture/next").session(session)).andExpect(content().string(containsString("name='lectureKey' value=''")));
 	}
 
 	@Test

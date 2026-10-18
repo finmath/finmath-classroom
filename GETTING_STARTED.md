@@ -112,17 +112,24 @@ ownership, template, naming, branch, deadline, staff team and Moodle mapping.
 The template's committed contents will be copied. Use a template containing only
 the material the test student should receive.
 
-Create a GitHub OAuth application with homepage `http://127.0.0.1:8080` and callback:
+Create a [GitHub OAuth application](https://github.com/settings/applications/new)
+with homepage `http://127.0.0.1:8080` and callback:
 
 ```text
 http://127.0.0.1:8080/auth/github/callback
 ```
 
 Use `127.0.0.1` consistently in the callback, server configuration and browser.
-Prepare a separate instructor provisioning token with access to the template and
-new repositories; see [GitHub credentials](docs/registration.md#github-credentials)
-for endpoint permissions and organization requirements. OAuth identifies the
-student account; the provisioning token performs repository operations.
+Create a separate [fine-grained provisioning token](https://github.com/settings/personal-access-tokens/new).
+Choose your teaching organization as **Resource owner** and **All repositories**
+so the token also covers student repositories created later. Separately, under
+**Organization permissions**, set **Members → Read-only** for staff-team grants.
+**All repositories** selects repositories; it does not grant organization permissions.
+Follow the
+[provisioning-token setup](docs/registration.md#provisioning-token) for the exact
+permissions, then copy the generated token into the provisioning-token prompt below.
+That input is hidden. OAuth identifies the student account; the provisioning token
+performs repository operations.
 
 The following Bash prompts keep secret values out of command history and apply
 them only to this subshell. Import runs after configuration validation:
@@ -156,13 +163,20 @@ In another terminal, inspect the saved state:
 ```sh
 java -jar target/finmath-classroom.jar registration students --data local/pilot
 java -jar target/finmath-classroom.jar registration list --data local/pilot \
-  --lecture numerical-methods --assignment example-exercise
+  --lecture numerical-methods --assignment example-exercise --format table
 ```
 
 The enrollment includes numeric GitHub IDs, the repository URL and a status such as
 `invitation_pending` or `active`. Signing in again shows the saved repository link.
-Repeated acceptance resumes eligible access grants without creating a second copy.
+The registration form is replaced by the saved status. **Retry repository setup**
+resumes eligible access failures; **Refresh access status** checks a pending
+invitation. Neither requires another declaration or creates a second copy.
 Stop the server with Ctrl+C; the database persists for the next start.
+
+To repeat a registration from scratch, use the
+[administrative delete command](docs/registration.md#let-a-student-register-again)
+after stopping the service, backing up its data, and removing the test repository
+on GitHub. The student's identity remains available for the fresh acceptance.
 
 If you kept the example roster, your test student creates a separate record; typing
 an example student's name does not claim that row. To bind a real roster entry,
@@ -175,6 +189,12 @@ For other users, host the service at a public HTTPS origin and update the OAuth
 application's callback accordingly. A normal Moodle URL resource can link to the
 assignment's `/accept/<lecture>/<assignment>` page immediately; students use the
 shared-key flow. That link does not supply trusted Moodle identity.
+
+To prefill the keys, add `?lectureKey=LECTURE_KEY&assignmentKey=ASSIGNMENT_KEY` to
+the assignment URL, with URL-encoded values. The form remembers them through
+GitHub sign-in; students still confirm acceptance. Distribute the link inside
+your course, as it contains the shared keys. See
+[prefilling registration keys](docs/registration.md#prefilling-registration-keys).
 
 Signed identity requires an LTI 1.3 External tool and its verified course/activity
 mapping. Follow the [Moodle setup reference](docs/registration.md) once the public

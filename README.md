@@ -26,10 +26,12 @@ trial, a local browser preview, and a first live GitHub assignment.
    outside collaborator with write access.
 5. SQLite records the acceptance, declaration, numeric account/repository IDs and
    provisioning progress. Students can return to their repository link; instructors
-   can list registrations and recover interrupted provisioning.
+   can list registrations, recover interrupted provisioning, or delete an
+   acceptance to let a student register again.
 
-Opening an assignment page does not create a repository. Repeated acceptance
-resumes recorded work, and ambiguous creation failures require instructor review.
+Opening an assignment page does not create a repository. After acceptance, it
+shows the saved repository and status, with retry controls when needed. Ambiguous
+creation failures require instructor review.
 Self-declared names do not prove university identity or claim a roster entry by name.
 
 ## What is available
@@ -95,5 +97,4 @@ registration and does not verify GitHub permissions, connectivity or final gradi
 
 Operate one service instance with private persistent storage and backups.
 Automatic credential renewal and deployment automation are not implemented.
-The Python code in `tools/` remains a migration reference; Java is the maintained
-implementation. There is no Python runtime dependency for Java commands.
+Java is the sole implementation; no Python runtime is required.

@@ -62,7 +62,7 @@ public final class RegistrationService {
 		Repository repository = github.repository(enrollment.repository());
 		checkRepository(repository, enrollment.repository(), repositoryId);
 		store.recordRepository(enrollment, repository.id());
-		return store.finish(enrollment, "retryable", "Repository reconciled by instructor; accept again to finish access grants.");
+		return store.finish(enrollment, "retryable", "Repository reconciled by instructor; retry setup to finish access grants.");
 	}
 
 	/** Accepts once, creates a private template copy and resumes recorded staff/invitation failures. */
@@ -81,6 +81,22 @@ public final class RegistrationService {
 				|| !matches(lecture.registrationKey(), lectureKey) || !matches(assignment.registrationKey(), assignmentKey))) {
 			throw new IllegalArgumentException("The registration keys are incorrect or standalone registration is disabled.");
 		}
+		User currentAccount = checkAccount(assignment, account);
+		Enrollment enrollment = store.reserve(lecture, assignment, identity, currentAccount, clock.instant());
+		return provision(lecture, assignment, enrollment, currentAccount);
+	}
+
+	/** Resumes an existing acceptance without repeating its identity, registration keys or declaration. */
+	public Enrollment retry(String lectureId, String assignmentId, User account) throws IOException {
+		Lecture lecture = config.lecture(lectureId);
+		Assignment assignment = config.assignment(lectureId, assignmentId);
+		User currentAccount = checkAccount(assignment, account);
+		Enrollment enrollment = store.retry(lecture, assignment, currentAccount);
+		return provision(lecture, assignment, enrollment, currentAccount);
+	}
+
+	private User checkAccount(Assignment assignment, User account) throws IOException {
+		if(account == null || account.id() <= 0) throw new IllegalArgumentException("Connect your GitHub account first.");
 		if(assignment.deadline() != null && !clock.instant().isBefore(assignment.deadline())) {
 			throw new IllegalArgumentException("The assignment deadline has passed.");
 		}
@@ -88,7 +104,11 @@ public final class RegistrationService {
 		if(currentAccount.id() != account.id() || !currentAccount.login().equalsIgnoreCase(account.login())) {
 			throw new IllegalArgumentException("The GitHub account has changed. Sign in again.");
 		}
-		Enrollment enrollment = store.reserve(lecture, assignment, identity, currentAccount, clock.instant());
+		return currentAccount;
+	}
+
+	private Enrollment provision(Lecture lecture, Assignment assignment, Enrollment enrollment, User account) throws IOException {
+		if(enrollment.status().equals("active")) return enrollment;
 		boolean creationAttempted = false;
 		boolean repositoryRecorded = enrollment.repositoryId() != null;
 		boolean identityMismatch = false;
@@ -114,14 +134,14 @@ public final class RegistrationService {
 				identityMismatch = false;
 			}
 			if(lecture.staffTeam() != null) github.grantStaff(lecture.organization(), lecture.staffTeam(), enrollment.repository());
-			boolean pending = github.invite(enrollment.repository(), currentAccount.login());
+			boolean pending = github.invite(enrollment.repository(), account.login());
 			return store.finish(enrollment, pending ? "invitation_pending" : "active", null);
 		} catch(IOException | RuntimeException exception) {
 			boolean needsReview = identityMismatch || creationAttempted && !repositoryRecorded;
 			try {
 				store.finish(enrollment, needsReview ? "needs_attention" : "retryable", needsReview
 						? "Repository creation or identity is uncertain. Instructor review is required before retrying."
-						: "Provisioning did not finish. Accept again to retry safely.");
+						: "Provisioning did not finish. Retry setup to continue safely.");
 			} catch(IOException failure) {
 				exception.addSuppressed(failure);
 			}

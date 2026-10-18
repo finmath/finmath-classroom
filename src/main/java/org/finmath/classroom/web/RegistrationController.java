@@ -40,12 +40,14 @@ import org.springframework.web.util.HtmlUtils;
 @RestController
 @Conditional(RegistrationConfiguration.Enabled.class)
 public class RegistrationController {
+	private static final String PREFILL = "registrationKeys:";
 	private final RegistrationService registration;
 	private final GitHubGateway github;
 	private final String publicUrl;
 	private final Optional<MoodleLaunch> moodle;
 	private final SecureRandom random = new SecureRandom();
 	private record OAuth(String state, String verifier, String path, Instant expires) { }
+	private record RegistrationKeys(String lectureKey, String assignmentKey) { }
 
 	public RegistrationController(RegistrationService registration, GitHubGateway github,
 			@Value("${classroom.public-url}") String publicUrl, Optional<MoodleLaunch> moodle) {
@@ -56,52 +58,76 @@ public class RegistrationController {
 	}
 
 	@GetMapping("/accept/{lectureId}/{assignmentId}")
-	public ResponseEntity<String> assignment(@PathVariable String lectureId, @PathVariable String assignmentId, HttpSession session) throws IOException {
+	public ResponseEntity<?> assignment(@PathVariable String lectureId, @PathVariable String assignmentId,
+			@RequestParam(required = false) String lectureKey, @RequestParam(required = false) String assignmentKey,
+			HttpSession session, HttpServletRequest request) throws IOException {
 		Lecture lecture = registration.config().lecture(lectureId);
 		Assignment assignment = registration.config().assignment(lectureId, assignmentId);
+		String path = "/accept/" + lectureId + "/" + assignmentId;
+		RegistrationKeys keys = (RegistrationKeys) session.getAttribute(PREFILL + path);
+		if(keys == null) keys = new RegistrationKeys("", "");
+		if(lectureKey != null || assignmentKey != null) {
+			if(lectureKey != null && (lectureKey.length() > 1024 || request.getParameterValues("lectureKey").length != 1)
+					|| assignmentKey != null && (assignmentKey.length() > 1024 || request.getParameterValues("assignmentKey").length != 1)) {
+				throw new IllegalArgumentException("Provide each registration key once, with at most 1024 characters");
+			}
+			session.setAttribute(PREFILL + path, new RegistrationKeys(lectureKey == null ? "" : lectureKey, assignmentKey == null ? "" : assignmentKey));
+			return redirect(URI.create(path));
+		}
 		MoodleLaunch.Launch launch = launch(session, lectureId, assignmentId);
+		User user = (User) session.getAttribute("github");
+		Enrollment enrollment = user == null ? null : registration.enrollment(lectureId, assignmentId, user);
 		String title = escape(lecture.title()) + ": " + escape(assignment.title());
-		if(launch == null && (lecture.registrationKey() == null || assignment.registrationKey() == null)) {
+		if(enrollment == null && launch == null && (lecture.registrationKey() == null || assignment.registrationKey() == null)) {
 			return page(HttpStatus.FORBIDDEN, title, "<p>Open this assignment through its Moodle External tool activity.</p>");
 		}
 		String csrf = csrf(session);
-		String path = "/accept/" + lectureId + "/" + assignmentId;
 		StringBuilder body = new StringBuilder();
-		User user = (User) session.getAttribute("github");
 		if(user == null) {
 			body.append("<p>Connect your GitHub account, then confirm your details to accept this assignment.</p>")
 					.append("<form method='post' action='/auth/github/start'>").append(hidden("csrf", csrf))
 					.append(hidden("lectureId", lectureId)).append(hidden("assignmentId", assignmentId))
 					.append("<button>Connect GitHub account</button></form>");
 		} else {
-			Enrollment enrollment = registration.enrollment(lectureId, assignmentId, user);
+			body.append("<p>Connected GitHub account: <strong>").append(escape(user.login())).append("</strong></p>");
 			if(enrollment != null) {
-				body.append("<p>Your acceptance is recorded.</p>");
+				body.append("<p>Your acceptance is recorded.</p><p>Registered as: <strong>").append(escape(enrollment.name()))
+						.append("</strong><br>Accepted: ").append(escape(enrollment.acceptedAt())).append("</p>");
 				if(enrollment.repositoryId() != null) {
 					body.append("<p><a href='").append(escape(enrollment.repositoryUrl())).append("'>Open your repository</a></p>");
 				}
-				if("invitation_pending".equals(enrollment.status())) {
-					body.append("<p>Accept the GitHub repository invitation to access your assignment. Check your GitHub notifications or email.</p>");
-				}
+				body.append("<p>").append(switch(enrollment.status()) {
+					case "active" -> "Repository access is active.";
+					case "invitation_pending" -> "Accept the GitHub repository invitation to access your assignment. Check your GitHub notifications or email.";
+					case "retryable" -> "Repository setup is incomplete.";
+					case "creating" -> "Repository setup is in progress. Reload this page shortly. If this status persists, contact your instructor.";
+					case "needs_attention" -> "Repository setup needs instructor review.";
+					default -> escape(enrollment.status());
+				}).append("</p>");
 				if(enrollment.problem() != null) {
 					body.append("<p>").append(escape(enrollment.problem())).append("</p>");
 				}
-			}
-			body.append("<p>Connected GitHub account: <strong>").append(escape(user.login())).append("</strong></p>")
-					.append("<form method='post' action='").append(path).append("'>").append(hidden("csrf", csrf));
-			String name = launch == null ? null : launch.identity().name();
-			if(name != null && !name.isBlank()) {
-				body.append("<p>Name supplied by Moodle: <strong>").append(escape(name)).append("</strong></p>");
+				if("retryable".equals(enrollment.status()) || "invitation_pending".equals(enrollment.status())) {
+					body.append("<form method='post' action='").append(path).append("/retry'>").append(hidden("csrf", csrf))
+							.append("<button>").append("retryable".equals(enrollment.status()) ? "Retry repository setup" : "Refresh access status")
+							.append("</button></form>");
+				}
 			} else {
-				body.append("<label>Your full name (self-declared)<input name='name' autocomplete='name' maxlength='200' required></label>");
+				body.append("<form method='post' action='").append(path).append("'>").append(hidden("csrf", csrf));
+				String name = launch == null ? null : launch.identity().name();
+				if(name != null && !name.isBlank()) {
+					body.append("<p>Name supplied by Moodle: <strong>").append(escape(name)).append("</strong></p>");
+				} else {
+					body.append("<label>Your full name (self-declared)<input name='name' autocomplete='name' maxlength='200' required></label>");
+				}
+				if(launch == null) {
+					body.append("<label>Lecture registration key<input type='password' name='lectureKey' value='").append(escape(keys.lectureKey())).append("' required></label>")
+							.append("<label>Assignment registration key<input type='password' name='assignmentKey' value='").append(escape(keys.assignmentKey())).append("' required></label>");
+				}
+				body.append("<label><input type='checkbox' name='declaration' value='true' required> ")
+						.append(escape(RegistrationService.DECLARATION)).append("</label><button>Accept assignment</button></form>");
 			}
-			if(launch == null) {
-				body.append("<label>Lecture registration key<input type='password' name='lectureKey' required></label>")
-						.append("<label>Assignment registration key<input type='password' name='assignmentKey' required></label>");
-			}
-			body.append("<label><input type='checkbox' name='declaration' value='true' required> ")
-					.append(escape(RegistrationService.DECLARATION)).append("</label><button>Accept assignment</button></form>")
-					.append("<form method='post' action='/auth/github/logout'>").append(hidden("csrf", csrf))
+			body.append("<form method='post' action='/auth/github/logout'>").append(hidden("csrf", csrf))
 					.append(hidden("lectureId", lectureId)).append(hidden("assignmentId", assignmentId))
 					.append("<button>Disconnect GitHub account</button></form>");
 		}
@@ -146,6 +172,9 @@ public class RegistrationController {
 		registration.config().assignment(lectureId, assignmentId);
 		session.removeAttribute("github");
 		session.removeAttribute("oauth");
+		session.getAttributeNames().asIterator().forEachRemaining(name -> {
+			if(name.startsWith(PREFILL)) session.removeAttribute(name);
+		});
 		return redirect(URI.create("/accept/" + lectureId + "/" + assignmentId));
 	}
 
@@ -164,6 +193,19 @@ public class RegistrationController {
 				: new Identity(launch.identity().source(), launch.identity().subject(),
 						launch.identity().name() == null || launch.identity().name().isBlank() ? name : launch.identity().name());
 		registration.accept(lectureId, assignmentId, identity, user, lectureKey, assignmentKey, declaration);
+		session.removeAttribute(PREFILL + "/accept/" + lectureId + "/" + assignmentId);
+		return redirect(URI.create("/accept/" + lectureId + "/" + assignmentId));
+	}
+
+	@PostMapping("/accept/{lectureId}/{assignmentId}/retry")
+	public ResponseEntity<Void> retry(@PathVariable String lectureId, @PathVariable String assignmentId,
+			@RequestParam String csrf, HttpSession session) throws IOException {
+		checkCsrf(session, csrf);
+		User user = (User) session.getAttribute("github");
+		if(user == null) {
+			throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Connect your GitHub account first");
+		}
+		registration.retry(lectureId, assignmentId, user);
 		return redirect(URI.create("/accept/" + lectureId + "/" + assignmentId));
 	}
 

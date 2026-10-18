@@ -13,6 +13,8 @@ import java.time.Clock;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.util.List;
+import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -57,17 +59,21 @@ class RegistrationServiceTest {
 		return service.accept("lecture", "exercise", self, alice, "lecture-secret", "assignment-secret", true);
 	}
 
+	private Enrollment retry() throws IOException {
+		return service.retry("lecture", "exercise", github.current);
+	}
+
 	@Test void testAcceptancePersistsDeclarationAndResumesAfterRestart() throws Exception {
 		Enrollment enrollment = accept();
 		assertEquals("invitation_pending", enrollment.status());
-		assertEquals("https://github.com/org/term-exercise-42", enrollment.repositoryUrl());
+		assertEquals("https://github.com/org/term-exercise-alice-42", enrollment.repositoryUrl());
 		assertEquals(101L, enrollment.repositoryId());
 		assertEquals(List.of("create", "staff", "invite"), github.operations);
 		assertEquals("self", enrollment.identitySource());
 		github.pending = false;
 		EnrollmentStore reopened = new EnrollmentStore(directory.resolve("classroom.db"), false);
 		service = new RegistrationService(config, reopened, github, Clock.fixed(now.plusSeconds(10), ZoneOffset.UTC));
-		Enrollment repeated = accept();
+		Enrollment repeated = retry();
 		assertEquals(enrollment.studentId(), repeated.studentId());
 		assertEquals(enrollment.acceptedAt(), repeated.acceptedAt());
 		assertEquals("active", repeated.status());
@@ -95,8 +101,114 @@ class RegistrationServiceTest {
 		assertEquals("retryable", failed.status());
 		assertEquals(101L, failed.repositoryId());
 		github.failInvitation = false;
-		assertEquals("invitation_pending", accept().status());
+		Enrollment retried = retry();
+		assertEquals("invitation_pending", retried.status());
+		assertEquals(failed.acceptedAt(), retried.acceptedAt());
+		assertEquals(failed.name(), retried.name());
+		assertEquals(failed.identitySource(), retried.identitySource());
 		assertEquals(1, github.creations);
+	}
+
+	@Test void testNewRepositoryNameUsesLowercaseLoginAndNumericId() throws Exception {
+		github.current = new User(42, "Alice");
+		assertEquals("org/term-exercise-alice-42", accept().repository());
+	}
+
+	@Test void testLegacyRepositoryNameSurvivesRetryAndUsernameChange() throws Exception {
+		Enrollment original = accept();
+		String legacyRepository = "org/term-exercise-42";
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE enrollments SET repository='" + legacyRepository + "'");
+		}
+		github.created = new Repository(101, legacyRepository, true, false, false, "main");
+		github.current = new User(42, "renamed-alice");
+		Enrollment retried = retry();
+		assertEquals(legacyRepository, retried.repository());
+		assertEquals(original.repositoryId(), retried.repositoryId());
+		assertEquals(original.acceptedAt(), retried.acceptedAt());
+		assertEquals("renamed-alice", retried.githubLogin());
+		assertEquals("renamed-alice", github.invitedLogin);
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testRepositoryNameLengthCheckedOnlyForNewAcceptance() throws Exception {
+		Assignment assignment = new Assignment("long", "Long prefix", "org/template", "p".repeat(80), "main", now.plusSeconds(3600), "assignment-secret", null, null);
+		ClassroomConfig longPrefix = new ClassroomConfig(List.of(new Lecture("lecture", "Lecture", "org", "staff", "lecture-secret", List.of(), List.of(assignment))));
+		store.importConfiguration(longPrefix, github);
+		service = new RegistrationService(longPrefix, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		github.current = new User(42, "a".repeat(16));
+		Enrollment original = service.accept("lecture", "long", self, github.current, "lecture-secret", "assignment-secret", true);
+		assertEquals(100, original.repository().substring("org/".length()).length());
+		github.current = new User(42, "a".repeat(17));
+		assertEquals(original.repository(), service.retry("lecture", "long", github.current).repository());
+		assertEquals(original.repository(), service.accept("lecture", "long", self, github.current, "lecture-secret", "assignment-secret", true).repository());
+		github.current = new User(77, "b".repeat(17));
+		IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> service.accept("lecture", "long", new Identity("self", "77", "Bob"), github.current, "lecture-secret", "assignment-secret", true));
+		assertTrue(failure.getMessage().contains("100 characters"));
+		assertEquals(1, store.list(null, null).size());
+		assertEquals(1, store.students(null).size());
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testRetryCannotCreateAcceptanceOrUseAnotherAccount() throws Exception {
+		assertThrows(IllegalArgumentException.class, this::retry);
+		assertTrue(store.list(null, null).isEmpty());
+		assertTrue(store.students(null).isEmpty());
+		store.importConfiguration(configuration(List.of(new Student("official-student", "Alice", "alice")), "template", now.plusSeconds(3600)), github);
+		assertThrows(IllegalArgumentException.class, this::retry);
+		assertTrue(store.list(null, null).isEmpty());
+		Enrollment original = accept();
+		github.operations.clear();
+		github.current = new User(77, "bob");
+		assertThrows(IllegalArgumentException.class, this::retry);
+		assertEquals(List.of(original), store.list(null, null));
+		assertTrue(github.operations.isEmpty());
+		github.current = new User(77, "alice");
+		assertThrows(IllegalArgumentException.class, () -> service.retry("lecture", "exercise", alice));
+		assertThrows(IllegalArgumentException.class, () -> service.retry("lecture", "exercise", null));
+		assertTrue(github.operations.isEmpty());
+	}
+
+	@Test void testRetryPreservesMoodleIdentityAndOriginalDeclaration() throws Exception {
+		Identity moodle = new Identity("moodle:https://moodle.example", "student-1", "Alice Example");
+		github.failInvitation = true;
+		assertThrows(IOException.class, () -> service.accept("lecture", "exercise", moodle, alice, null, null, true));
+		github.failInvitation = false;
+		github.current = new User(42, "renamed-alice");
+		Enrollment retried = retry();
+		assertEquals(moodle.source(), retried.identitySource());
+		assertEquals(moodle.name(), retried.name());
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement(); ResultSet row = statement.executeQuery("SELECT e.identity_source,e.identity_subject,e.accepted_at,e.declaration_version,e.declaration,s.identity_source AS student_source,s.identity_subject AS student_subject FROM enrollments e JOIN students s ON e.student_id=s.id")) {
+			assertTrue(row.next());
+			assertEquals(moodle.source(), row.getString("identity_source"));
+			assertEquals(moodle.subject(), row.getString("identity_subject"));
+			assertEquals(moodle.source(), row.getString("student_source"));
+			assertEquals(moodle.subject(), row.getString("student_subject"));
+			assertEquals(now.toString(), row.getString("accepted_at"));
+			assertEquals(RegistrationService.DECLARATION_VERSION, row.getString("declaration_version"));
+			assertEquals(RegistrationService.DECLARATION, row.getString("declaration"));
+		}
+	}
+
+	@Test void testActiveRetryHasNoProvisioningSideEffects() throws Exception {
+		github.pending = false;
+		Enrollment original = accept();
+		github.operations.clear();
+		assertEquals(original, retry());
+		assertTrue(github.operations.isEmpty());
+		assertNull(store.list(null, null).get(0).problem());
+	}
+
+	@Test void testRetryChecksDeadlineAndFrozenAssignmentSettings() throws Exception {
+		accept();
+		github.operations.clear();
+		service = new RegistrationService(config, store, github, Clock.fixed(now.plusSeconds(3600), ZoneOffset.UTC));
+		assertThrows(IllegalArgumentException.class, this::retry);
+		ClassroomConfig changed = configuration(List.of(), "different-template", now.plusSeconds(3600));
+		service = new RegistrationService(changed, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		assertThrows(IllegalArgumentException.class, this::retry);
+		assertEquals("invitation_pending", store.list(null, null).get(0).status());
+		assertTrue(github.operations.isEmpty());
 	}
 
 	@Test void testLostCreationResponseRequiresExplicitReconciliation() throws Exception {
@@ -106,17 +218,18 @@ class RegistrationServiceTest {
 		assertEquals("needs_attention", uncertain.status());
 		assertNull(uncertain.repositoryId());
 		assertThrows(IllegalArgumentException.class, this::accept);
+		assertThrows(IllegalArgumentException.class, this::retry);
 		assertEquals(1, github.creations);
 		assertThrows(IllegalArgumentException.class, () -> service.reconcile("lecture", "exercise", uncertain.studentId(), 999));
 		service.reconcile("lecture", "exercise", uncertain.studentId(), 101);
-		assertEquals("invitation_pending", accept().status());
+		assertEquals("invitation_pending", retry().status());
 		assertEquals(1, github.creations);
 	}
 
 	@Test void testExistingSameNameRepositoryIsNeverAdopted() throws Exception {
 		github.existingCollision = true;
 		assertThrows(IOException.class, this::accept);
-		assertThrows(IllegalArgumentException.class, this::accept);
+		assertThrows(IllegalArgumentException.class, this::retry);
 		assertNull(store.list(null, null).get(0).repositoryId());
 		assertFalse(github.operations.contains("invite"));
 	}
@@ -125,7 +238,7 @@ class RegistrationServiceTest {
 		Enrollment enrollment = accept();
 		github.operations.clear();
 		github.created = new Repository(999, enrollment.repository(), false, false, false, "main");
-		assertThrows(IllegalArgumentException.class, this::accept);
+		assertThrows(IllegalArgumentException.class, this::retry);
 		assertEquals("needs_attention", store.list(null, null).get(0).status());
 		assertTrue(github.operations.isEmpty());
 		assertThrows(IllegalArgumentException.class, () -> service.reconcile("lecture", "exercise", enrollment.studentId(), 999));
@@ -218,6 +331,7 @@ class RegistrationServiceTest {
 			assertEquals(1, EnrollmentStore.readOnly(directory.resolve("classroom.db")).list(null, null).size());
 			RegistrationService second = new RegistrationService(config, new EnrollmentStore(directory.resolve("classroom.db"), false), github, Clock.fixed(now, ZoneOffset.UTC));
 			assertThrows(IllegalArgumentException.class, () -> second.accept("lecture", "exercise", self, alice, "lecture-secret", "assignment-secret", true));
+			assertThrows(IllegalArgumentException.class, () -> second.retry("lecture", "exercise", alice));
 			github.continueCreation.countDown();
 			assertEquals("invitation_pending", first.get(5, TimeUnit.SECONDS).status());
 			assertEquals(1, github.creations);
@@ -231,8 +345,37 @@ class RegistrationServiceTest {
 		store.reserve(config.lecture("lecture"), config.assignment("lecture", "exercise"), self, alice, now);
 		service = new RegistrationService(config, new EnrollmentStore(directory.resolve("classroom.db"), false), github, Clock.fixed(now, ZoneOffset.UTC));
 		assertThrows(IllegalArgumentException.class, this::accept);
+		assertThrows(IllegalArgumentException.class, this::retry);
 		assertEquals(0, github.creations);
 		assertTrue(store.list(null, null).get(0).problem().contains("instructor review"));
+	}
+
+	@Test void testConcurrentRetriesAfterStaffFailureGrantAccessOnce() throws Exception {
+		github.failStaff = true;
+		assertThrows(IOException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertEquals("retryable", failed.status());
+		github.failStaff = false;
+		github.operations.clear();
+		github.staffStarted = new CountDownLatch(1);
+		github.continueStaff = new CountDownLatch(1);
+		ExecutorService executor = Executors.newSingleThreadExecutor();
+		try {
+			Future<Enrollment> first = executor.submit(this::retry);
+			assertTrue(github.staffStarted.await(5, TimeUnit.SECONDS));
+			RegistrationService second = new RegistrationService(config, new EnrollmentStore(directory.resolve("classroom.db"), false), github, Clock.fixed(now, ZoneOffset.UTC));
+			assertThrows(IllegalArgumentException.class, () -> second.retry("lecture", "exercise", alice));
+			github.continueStaff.countDown();
+			Enrollment retried = first.get(5, TimeUnit.SECONDS);
+			assertEquals("invitation_pending", retried.status());
+			assertEquals(failed.repository(), retried.repository());
+			assertEquals(failed.acceptedAt(), retried.acceptedAt());
+			assertEquals(List.of("staff", "invite"), github.operations);
+			assertEquals(1, github.creations);
+		} finally {
+			github.continueStaff.countDown();
+			executor.shutdownNow();
+		}
 	}
 
 	@Test void testReadOnlyOpenCannotCreateOrWriteAndRejectsPythonSchema() throws Exception {
@@ -248,17 +391,64 @@ class RegistrationServiceTest {
 		assertThrows(IOException.class, () -> new EnrollmentStore(python, true));
 	}
 
+	@Test void testDeleteRetainsStudentAndOtherAssignmentsAndPermitsFreshAcceptance() throws Exception {
+		Enrollment selected = accept();
+		Assignment exercise = config.assignment("lecture", "exercise");
+		Assignment otherExercise = new Assignment("other-exercise", "Other exercise", "org/template", "term-other", "main", exercise.deadline(), "assignment-secret", null, null);
+		Lecture lecture = new Lecture("lecture", "Lecture", "org", "staff", "lecture-secret", List.of(), List.of(exercise, otherExercise));
+		Lecture otherLecture = new Lecture("other-lecture", "Other lecture", "other-org", "staff", "lecture-secret", List.of(new Student(selected.studentId(), "Alice", "alice")), List.of(exercise));
+		store.importConfiguration(new ClassroomConfig(List.of(lecture, otherLecture)), github);
+		Enrollment second = store.finish(store.reserve(lecture, otherExercise, self, alice, now), "retryable", null);
+		Enrollment third = store.finish(store.reserve(otherLecture, exercise, self, alice, now), "retryable", null);
+		List<Map<String, Object>> students = store.students(null);
+		assertEquals(selected, store.delete("lecture", "exercise", selected.studentId()));
+		assertEquals(Set.of(second, third), Set.copyOf(store.list(null, null)));
+		assertEquals(students, store.students(null));
+		assertNull(service.enrollment("lecture", "exercise", alice));
+		service = new RegistrationService(config, store, github, Clock.fixed(now.plusSeconds(10), ZoneOffset.UTC));
+		Enrollment acceptedAgain = accept();
+		assertEquals(selected.studentId(), acceptedAgain.studentId());
+		assertEquals(now.plusSeconds(10).toString(), acceptedAgain.acceptedAt());
+		assertEquals(2, github.creations);
+	}
+
+	@Test void testDeleteRequiresExactExistingSelectorsAndWritableStore() throws Exception {
+		Enrollment enrollment = accept();
+		byte[] database = Files.readAllBytes(directory.resolve("classroom.db"));
+		assertThrows(IllegalArgumentException.class, () -> store.delete(null, "exercise", enrollment.studentId()));
+		assertThrows(IllegalArgumentException.class, () -> store.delete("lecture", "", enrollment.studentId()));
+		assertThrows(IllegalArgumentException.class, () -> store.delete("lecture", "exercise", " "));
+		assertThrows(IllegalArgumentException.class, () -> store.delete("lecture", "exercise", "unknown"));
+		assertThrows(IllegalArgumentException.class, () -> store.delete("other", "exercise", enrollment.studentId()));
+		assertThrows(IOException.class, () -> EnrollmentStore.readOnly(directory.resolve("classroom.db")).delete("lecture", "exercise", enrollment.studentId()));
+		assertEquals(List.of(enrollment), store.list(null, null));
+		assertArrayEquals(database, Files.readAllBytes(directory.resolve("classroom.db")));
+	}
+
+	@Test void testDeleteRefusesBusyAndUnfinishedCreation() throws Exception {
+		Enrollment reserved = store.reserve(config.lecture("lecture"), config.assignment("lecture", "exercise"), self, alice, now);
+		assertThrows(IllegalArgumentException.class, () -> store.delete("lecture", "exercise", reserved.studentId()));
+		assertEquals(1, store.list(null, null).size());
+		store.finish(reserved, "creating", null);
+		assertThrows(IllegalArgumentException.class, () -> store.delete("lecture", "exercise", reserved.studentId()));
+		assertEquals("creating", store.list(null, null).get(0).status());
+	}
+
 	private static class FakeGitHub implements GitHubGateway {
 		User current = new User(42, "alice");
 		Repository created;
 		boolean validTemplate = true;
 		boolean pending = true;
+		boolean failStaff;
 		boolean failInvitation;
 		boolean loseCreationResponse;
 		boolean existingCollision;
+		String invitedLogin;
 		int creations;
 		CountDownLatch creationStarted;
 		CountDownLatch continueCreation;
+		CountDownLatch staffStarted;
+		CountDownLatch continueStaff;
 		final List<String> operations = new java.util.ArrayList<>();
 
 		@Override public User user(String login) { return current; }
@@ -282,9 +472,22 @@ class RegistrationServiceTest {
 			if(loseCreationResponse) throw new IOException("Lost response after GitHub created repository");
 			return created;
 		}
-		@Override public void grantStaff(String organization, String team, String repository) { operations.add("staff"); }
+		@Override public void grantStaff(String organization, String team, String repository) throws IOException {
+			operations.add("staff");
+			if(failStaff) throw new IOException("Staff grant failed");
+			if(staffStarted != null) {
+				staffStarted.countDown();
+				try {
+					if(!continueStaff.await(5, TimeUnit.SECONDS)) throw new IOException("Test timeout");
+				} catch(InterruptedException exception) {
+					Thread.currentThread().interrupt();
+					throw new IOException(exception);
+				}
+			}
+		}
 		@Override public boolean invite(String repository, String login) throws IOException {
 			operations.add("invite");
+			invitedLogin = login;
 			if(failInvitation) throw new IOException("Invitation failed");
 			return pending;
 		}
