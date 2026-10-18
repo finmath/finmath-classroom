@@ -9,16 +9,20 @@ import java.security.SecureRandom;
 import java.time.Instant;
 import java.util.Base64;
 import java.util.Optional;
+import java.util.UUID;
 
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpSession;
 import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
 import org.finmath.classroom.registration.EnrollmentStore.Enrollment;
+import org.finmath.classroom.registration.GitHubException;
 import org.finmath.classroom.registration.GitHubGateway;
 import org.finmath.classroom.registration.GitHubGateway.User;
 import org.finmath.classroom.registration.RegistrationService;
 import org.finmath.classroom.registration.RegistrationService.Identity;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Conditional;
 import org.springframework.http.HttpStatus;
@@ -40,6 +44,7 @@ import org.springframework.web.util.HtmlUtils;
 @RestController
 @Conditional(RegistrationConfiguration.Enabled.class)
 public class RegistrationController {
+	private static final Logger LOG = LoggerFactory.getLogger(RegistrationController.class);
 	private static final String PREFILL = "registrationKeys:";
 	private final RegistrationService registration;
 	private final GitHubGateway github;
@@ -253,9 +258,17 @@ public class RegistrationController {
 	}
 
 	@ExceptionHandler(IOException.class)
-	ResponseEntity<String> unavailable() {
+	ResponseEntity<String> unavailable(IOException exception) {
+		String reference = UUID.randomUUID().toString();
+		// Log only bounded diagnostic fields. Causes and request/response data can contain secrets.
+		if(exception instanceof GitHubException githubFailure) {
+			LOG.warn("Registration failed reference={} operation={} category={} httpStatus={}",
+					reference, githubFailure.operation(), githubFailure.category(), githubFailure.httpStatus());
+		} else {
+			LOG.warn("Registration failed reference={} category=IO", reference);
+		}
 		return page(HttpStatus.SERVICE_UNAVAILABLE, "Registration could not finish",
-				"<p>Return to the assignment and try again. If it still fails, contact the instructor.</p>");
+				"<p>Return to the assignment and try again. If it still fails, contact the instructor.</p><p>Reference: " + reference + "</p>");
 	}
 
 	private MoodleLaunch.Launch launch(HttpSession session, String lectureId, String assignmentId) {

@@ -254,6 +254,42 @@ See also [Moodle External tools](https://docs.moodle.org/502/en/LTI_External_too
 
 ## Recovery
 
+### Diagnose an incomplete registration
+
+**"Registration could not finish"** is a generic response to an I/O failure. It
+does not establish that the registration keys are wrong. Note the error reference
+shown on the page and find its matching entry in the application log. Under the
+supplied systemd deployment:
+
+```sh
+journalctl -u finmath-classroom.service --since '15 minutes ago' --no-pager
+```
+
+GitHub failures identify the operation, failure category and HTTP status when
+available. Logs omit request URLs, credentials, response bodies and raw exception
+details. Older deployed versions show no reference and do not log these handled
+errors; updating the JAR is necessary to obtain those diagnostics.
+
+Also list the affected assignment in the default JSON format, which includes its
+recorded numeric repository ID and problem:
+
+```sh
+java -jar target/finmath-classroom.jar registration list \
+  --data /private/service/classroom --lecture numerical-methods \
+  --assignment example-exercise
+```
+
+| Saved state | Next step |
+| --- | --- |
+| No registration | Inspect the sign-in/account lookup or local storage failure. |
+| `retryable`, no repository ID | Inspect the template lookup and preflight checks. |
+| `retryable`, recorded repository ID | Inspect repository lookup, staff access and student invitation; retry reuses the recorded repository. |
+| `needs_attention` or persistent `creating` | Inspect the expected repository and numeric identity before reconciliation; creation may already have succeeded. |
+
+Preserve the failed registration while investigating. A repository with the
+expected name alone is insufficient evidence to adopt it, and deleting the local
+record while leaving that repository can cause a name collision on acceptance.
+
 ### Let a student register again
 
 Use this for a deliberate fresh start. For an incomplete repository setup, use

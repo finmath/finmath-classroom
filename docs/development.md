@@ -89,6 +89,7 @@ grade return are not implemented.
 | 2026-10-18: full assignment workflow | Restored the example's build, advisory JavaDoc/checkstyle and summary jobs; added ordinary pull-request feedback with explicit merge-commit identity. |
 | 2026-10-18: template migration | Added an explicit all-or-nothing Maven suite rubric, preserving existing weighted-method results; prepared pinned action references for assignment templates. |
 | 2026-10-18: central feedback updates | Switched assignment templates to the maintained `v1` action reference and added Maven `-U` to refresh SNAPSHOT checks despite dependency caching. |
+| 2026-10-19: registration diagnostics | Added error references correlated with sanitized GitHub operation/status logs, and accepted omission of the optional repository `is_template` field. Source templates still require an explicit true value; creation recovery and numeric identity checks are unchanged. |
 
 An instructor-account registration pilot was reported working. A complete learner
 pilot, the intended Moodle installation and public hosting still need validation.
