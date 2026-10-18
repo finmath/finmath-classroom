@@ -44,6 +44,8 @@ Self-declared names do not prove university identity or claim a roster entry by 
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
+| Shared Maven/JUnit feedback action and versioned artifacts | Implemented locally; publication and GitHub pilot pending |
+| Automatic feedback artifact collection | Pending |
 | Submission fetching, push/deadline tracking and source snapshots | Pending in Java |
 | Isolated final grader and Moodle grade return | Pending |
 
@@ -87,7 +89,12 @@ keep their own Git histories and builds.
   variables, GitHub permissions, Moodle setup and recovery.
 - [Other tools](docs/tools.md): local scoring, CSV collection and optional
   Maven/IntelliJ workspace generation.
-- [Migration status](MIGRATION.md): implementation boundaries and verification.
+- [Autograding migration](docs/autograding.md): replacement GitHub action, rubric
+  conversion and standardized uploaded results.
+- [Development notes and history](docs/development.md): architecture, conventions
+  and recorded verification.
+- [Roadmap](docs/roadmap.md): launch preparation, shared feedback workflows,
+  reliable result collection and final grading.
 - [Grading contract](docs/grading-contract.md): reference behavior for future
   submission capture and final grading.
 

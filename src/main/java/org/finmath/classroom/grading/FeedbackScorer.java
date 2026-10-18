@@ -43,6 +43,12 @@ public final class FeedbackScorer {
     private FeedbackScorer() {
     }
 
+    /** Surefire selectors for one Maven invocation, using the same validated rubric as scoring. */
+    public static String testSelection(Path rubric) throws IOException {
+        return String.join(",", loadRubric(rubric).stream()
+                .map(test -> test.key().className() + "#" + test.key().method()).toList());
+    }
+
     /** Invalid rubrics are rejected; invalid reports produce an error result. */
     public static JsonNode score(Path rubric, Path reports) throws IOException {
         List<ExpectedCase> expected = loadRubric(rubric);

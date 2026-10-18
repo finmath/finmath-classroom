@@ -1,0 +1,29 @@
+{
+  "tests": [
+    {
+      "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+      "method": "testBasicFunctionality",
+      "points": 5
+    },
+    {
+      "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+      "method": "testVarianceReductionWeak",
+      "points": 5
+    },
+    {
+      "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+      "method": "testVarianceReductionStrong",
+      "points": 5
+    },
+    {
+      "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+      "method": "testVarianceReductionStronger",
+      "points": 5
+    },
+    {
+      "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+      "method": "testVarianceReductionStrongest",
+      "points": 2
+    }
+  ]
+}

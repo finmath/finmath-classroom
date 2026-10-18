@@ -14,6 +14,7 @@ import java.util.Map;
 import java.util.Set;
 
 import org.finmath.classroom.grading.FeedbackScorer;
+import org.finmath.classroom.grading.FeedbackArtifact;
 import org.finmath.classroom.grading.GradeCollector;
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.io.SafeFiles;
@@ -38,6 +39,7 @@ public final class ClassroomCli {
         try {
             return switch (args[0]) {
                 case "score" -> score(options(args, Set.of("--rubric", "--reports", "--output", "--summary"), Set.of()), out);
+                case "feedback" -> feedback(Arrays.copyOfRange(args, 1, args.length), out);
                 case "collect" -> collect(options(args, Set.of("--manifest", "--results", "--output"), Set.of()), out);
                 case "workspace" -> workspace(options(args, Set.of("--modules", "--repositories-root", "--output"),
                         Set.of("--check", "--write")), out);
@@ -94,6 +96,48 @@ public final class ClassroomCli {
         new GradeCollector().collect(required(options, "--manifest"), required(options, "--results"), output);
         out.println("Collected trusted results into " + output);
         return 0;
+    }
+
+    private static int feedback(String[] args, PrintStream out) throws IOException {
+        if (args.length == 0) {
+            throw new IllegalArgumentException("Choose a feedback command: select or report");
+        }
+        if (args[0].equals("select")) {
+            var options = options(args, Set.of("--rubric"), Set.of());
+            out.println(FeedbackScorer.testSelection(required(options, "--rubric")));
+            return 0;
+        }
+        if (!args[0].equals("report")) {
+            throw new IllegalArgumentException("Unknown feedback command: " + args[0]);
+        }
+        var options = options(args, Set.of("--rubric", "--reports", "--context", "--test-exit-code",
+                "--output", "--summary"), Set.of());
+        Path rubric = required(options, "--rubric");
+        Path reports = required(options, "--reports");
+        Path context = required(options, "--context");
+        Path output = SafeFiles.validateOutput(required(options, "--output"), false);
+        Path summary = options.containsKey("--summary")
+                ? SafeFiles.validateOutput(Path.of(options.get("--summary")), false) : null;
+        for (Path destination : summary == null ? List.of(output) : List.of(output, summary)) {
+            rejectScoreInputOverwrite(rubric, reports, destination);
+            if (samePath(context, destination)) {
+                throw new IllegalArgumentException("Feedback output must not overwrite context");
+            }
+        }
+        if (summary != null && samePath(summary, output)) {
+            throw new IllegalArgumentException("Summary and JSON output must be different files");
+        }
+        if (!options.containsKey("--test-exit-code")) {
+            throw new IllegalArgumentException("Missing required option --test-exit-code");
+        }
+        int testExitCode = Integer.parseInt(options.get("--test-exit-code"));
+        var result = FeedbackArtifact.create(rubric, reports, context, testExitCode);
+        SafeFiles.writeAtomic(output, (JsonFiles.MAPPER.writeValueAsString(result) + "\n").getBytes(StandardCharsets.UTF_8), false);
+        if (summary != null) {
+            SafeFiles.writeAtomic(summary, FeedbackArtifact.summary(result).getBytes(StandardCharsets.UTF_8), false);
+        }
+        out.println("Feedback only: " + result.path("status").asString() + "; output " + output);
+        return FeedbackArtifact.exitCode(result);
     }
 
     private static int workspace(Map<String, String> options, PrintStream out) throws IOException {
@@ -281,6 +325,8 @@ public final class ClassroomCli {
 
                 Commands (run from the finmath-classroom directory):
                   score --rubric FILE --reports DIR --output FILE [--summary FILE]
+                  feedback select --rubric FILE
+                  feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER --output FILE [--summary FILE]
                   collect --manifest FILE --results DIR --output FILE.csv
                   workspace (--check | --write) [--modules FILE] [--repositories-root DIR] [--output DIR]
                   registration check --data DIR

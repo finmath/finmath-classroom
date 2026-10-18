@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "finmath-classroom-feedback",
+  "authoritative": false,
+  "generated_at": "2026-10-18T12:00:00Z",
+  "context": {
+    "repository_id": 123456,
+    "repository": "example-org/assignment-student",
+    "commit": "0123456789abcdef0123456789abcdef01234567",
+    "ref": "refs/heads/main",
+    "run_id": 987654,
+    "run_attempt": 1,
+    "event": "push",
+    "workflow_ref": "example-org/assignment-student/.github/workflows/classroom.yml@refs/heads/main",
+    "workflow_sha": "0123456789abcdef0123456789abcdef01234567"
+  },
+  "rubric_sha256": "923a9c458d5621ce29e7e0e6a4083fdb3bed6a1de50d3ffd9b18eaf5b91bd7a0",
+  "execution": {
+    "exit_code": 1,
+    "status": "completed"
+  },
+  "status": "failed",
+  "score": 15,
+  "max_score": 22,
+  "feedback": {
+    "schema_version": 1,
+    "authoritative": false,
+    "purpose": "student feedback",
+    "cases": [
+      {
+        "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+        "method": "testBasicFunctionality",
+        "status": "passed",
+        "occurrences": 1,
+        "points": 5,
+        "max_points": 5
+      },
+      {
+        "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+        "method": "testVarianceReductionWeak",
+        "status": "passed",
+        "occurrences": 1,
+        "points": 5,
+        "max_points": 5
+      },
+      {
+        "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+        "method": "testVarianceReductionStrong",
+        "status": "passed",
+        "occurrences": 1,
+        "points": 5,
+        "max_points": 5
+      },
+      {
+        "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+        "method": "testVarianceReductionStronger",
+        "status": "failed",
+        "occurrences": 1,
+        "points": 0,
+        "max_points": 5
+      },
+      {
+        "class_name": "info.quantlab.numericalmethods.assignments.montecarlo.controlvariate.AsianOptionWithBSControlVariateTest",
+        "method": "testVarianceReductionStrongest",
+        "status": "failed",
+        "occurrences": 1,
+        "points": 0,
+        "max_points": 2
+      }
+    ],
+    "status": "failed",
+    "score": 15,
+    "max_score": 22,
+    "errors": []
+  }
+}

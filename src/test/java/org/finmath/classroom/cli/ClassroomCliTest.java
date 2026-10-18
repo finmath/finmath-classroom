@@ -83,6 +83,55 @@ class ClassroomCliTest {
         assertTrue(text.contains("received_at,status,score,max_score"));
     }
 
+    @Test void feedbackArtifactCommandPreservesRunIdentityAndPartialScore() throws Exception {
+        Path rubric = Files.writeString(directory.resolve("rubric.json"), """
+                {"tests":[{"class_name":"ExampleTest","method":"basic","points":1},
+                          {"class_name":"ExampleTest","method":"stability","points":3}]}
+                """);
+        Path reports = Files.createDirectory(directory.resolve("reports"));
+        Files.writeString(reports.resolve("TEST-example.xml"), """
+                <testsuite><testcase classname="ExampleTest" name="basic"/>
+                <testcase classname="ExampleTest" name="stability"><failure/></testcase></testsuite>
+                """);
+        Path context = Files.writeString(directory.resolve("context.json"), """
+                {"repository_id":123,"repository":"example-org/assignment-student",
+                 "commit":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","ref":"refs/heads/main",
+                 "run_id":456,"run_attempt":2,"event":"push",
+                 "workflow_ref":"example-org/assignment-student/.github/workflows/classroom.yml@refs/heads/main",
+                 "workflow_sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+                """);
+        Path output = directory.resolve("result.json");
+        Path summary = directory.resolve("summary.md");
+        assertEquals(1, run("feedback", "report", "--rubric", rubric.toString(), "--reports", reports.toString(),
+                "--context", context.toString(), "--test-exit-code", "1", "--output", output.toString(),
+                "--summary", summary.toString()));
+        var result = JsonFiles.read(output, 10000);
+        assertEquals("finmath-classroom-feedback", result.path("kind").asString());
+        assertEquals(2, result.path("context").path("run_attempt").intValue());
+        assertEquals(1, result.path("score").intValue());
+        assertEquals(4, result.path("max_score").intValue());
+        assertEquals(1, result.path("execution").path("exit_code").intValue());
+        assertFalse(result.path("authoritative").booleanValue());
+        assertTrue(Files.readString(summary).contains("1/4"));
+        byte[] saved = Files.readAllBytes(output);
+        assertEquals(2, run("feedback", "report", "--rubric", rubric.toString(), "--reports", reports.toString(),
+                "--context", context.toString(), "--test-exit-code", "0", "--output", output.toString()));
+        assertArrayEquals(saved, Files.readAllBytes(output));
+
+        var selected = new ByteArrayOutputStream();
+        assertEquals(0, ClassroomCli.run(new String[]{"feedback", "select", "--rubric", rubric.toString()},
+                new PrintStream(selected), System.err));
+        assertEquals("ExampleTest#basic,ExampleTest#stability", selected.toString(StandardCharsets.UTF_8).trim());
+    }
+
+    @Test void feedbackCommandsRejectUnknownCommandsAndMissingRequiredOptions() {
+        assertEquals(2, run("feedback"));
+        assertEquals(2, run("feedback", "sync"));
+        assertEquals(2, run("feedback", "select"));
+        assertEquals(2, run("feedback", "select", "--run", "echo ignored"));
+        assertEquals(2, run("feedback", "report", "--rubric", "missing"));
+    }
+
     @Test void scoreRejectsParentAliasesIntoReports() throws Exception {
         Path rubric = directory.resolve("rubric.json");
         Files.writeString(rubric, "{\"tests\":[{\"class_name\":\"Test\",\"method\":\"test\",\"points\":1}]}");

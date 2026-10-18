@@ -204,4 +204,5 @@ requires a deliberate migration; a fresh assignment ID and repository prefix are
 the simpler choice for a new pilot. Restart the service after configuration changes.
 
 Registration does not yet collect submissions or perform authoritative final grading.
-See [MIGRATION.md](MIGRATION.md) for the implementation boundary.
+See the [roadmap](docs/roadmap.md) for shared feedback workflows, result collection
+and final grading, and the [development notes](docs/development.md) for history.

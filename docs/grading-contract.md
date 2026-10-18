@@ -1,7 +1,10 @@
-# Grading migration contract
+# Submission and grading contract
 
 This document is for contributors implementing submission capture and final grading.
-For the available offline commands, see [Tools](tools.md).
+For the available offline commands, see [Tools](tools.md). The
+[autograding guide](autograding.md) defines uploaded student feedback; the
+[roadmap](roadmap.md) describes its future collection path. Collected student
+feedback does not satisfy the trusted final-result contract below.
 
 The contract below preserves the submission behavior established during prototyping.
 Java currently closes enrollment at an optional deadline; it does not receive push

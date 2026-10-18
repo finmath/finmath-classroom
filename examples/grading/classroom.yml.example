@@ -1,0 +1,122 @@
+# Install in an assignment repository as .github/workflows/classroom.yml.
+# Publish the action first; replace OWNER and PUBLISHED_COMMIT_SHA below.
+name: Assignment checks and feedback
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  JAVA_VERSION: '17'
+jobs:
+  build:
+    name: 🛠️ Build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up assignment Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Build without tests or checkstyle
+        run: mvn -B -ntp -Dmaven.test.skip=true -Dcheckstyle.skip=true clean compile
+
+  javadoc:
+    name: 📚 JavaDoc
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up assignment Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Generate JavaDoc (advisory)
+        run: mvn -B -ntp -Dmaven.test.skip=true -Dcheckstyle.skip=true -Ddoclint=none javadoc:javadoc
+
+  checkstyle:
+    name: 🔍 Checkstyle
+    runs-on: ubuntu-24.04
+    needs: build
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up assignment Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Check code style (advisory)
+        run: mvn -B -ntp -Dcheckstyle.skip=false checkstyle:check
+
+  # Independent of the advisory jobs, so their failures do not prevent grading.
+  autograding:
+    name: 🧪 Autograding
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up assignment Java
+        uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: zulu
+          java-version: ${{ env.JAVA_VERSION }}
+          cache: maven
+      - name: Test and upload feedback
+        uses: OWNER/finmath-classroom@PUBLISHED_COMMIT_SHA
+        with:
+          rubric: .github/classroom/autograding.json
+          timeout-minutes: '10'
+          retention-days: '30'
+
+  summary:
+    name: 🥉🥈🥇 Summary
+    runs-on: ubuntu-24.04
+    needs: [build, javadoc, checkstyle, autograding]
+    if: ${{ always() }}
+    permissions: {}
+    timeout-minutes: 5
+    steps:
+      - name: Summarize checks
+        shell: bash
+        env:
+          BUILD_RESULT: ${{ needs.build.result }}
+          JAVADOC_RESULT: ${{ needs.javadoc.result }}
+          CHECKSTYLE_RESULT: ${{ needs.checkstyle.result }}
+          GRADING_RESULT: ${{ needs.autograding.result }}
+        run: |
+          status() {
+            case "$1" in
+              success) printf '✅ Passed' ;;
+              failure) printf '❌ Failed' ;;
+              cancelled) printf '⏹️ Cancelled' ;;
+              skipped) printf '⏭️ Skipped' ;;
+              *) printf '❔ Unavailable' ;;
+            esac
+          }
+          {
+            printf '## Assignment checks\n\n'
+            printf '| Check | Result | Role |\n| --- | --- | --- |\n'
+            printf '| 🛠️ Build | %s | Compilation |\n' "$(status "$BUILD_RESULT")"
+            printf '| 📚 JavaDoc | %s | Advisory; no points |\n' "$(status "$JAVADOC_RESULT")"
+            printf '| 🔍 Checkstyle | %s | Advisory; no points |\n' "$(status "$CHECKSTYLE_RESULT")"
+            printf '| 🧪 Autograding | %s | Rubric-based feedback |\n' "$(status "$GRADING_RESULT")"
+            printf '\nPoints and per-test results appear in the Autograding job summary.\n'
+            printf 'JavaDoc and checkstyle failures do not change the score. A failed grading job may still have partial points.\n'
+          } >> "$GITHUB_STEP_SUMMARY"

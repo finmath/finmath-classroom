@@ -1,0 +1,86 @@
+name: finmath classroom feedback
+description: Run weighted JUnit methods with Maven and publish student feedback.
+inputs:
+  rubric:
+    description: Rubric JSON path relative to working-directory.
+    default: .github/classroom/autograding.json
+  working-directory:
+    description: Maven project directory relative to the checked-out repository.
+    default: .
+  timeout-minutes:
+    description: Time limit for the entire Maven test invocation (1–360 minutes).
+    default: '10'
+  retention-days:
+    description: Artifact retention in days, within the repository's configured limit.
+    default: '30'
+outputs:
+  result-path:
+    description: Local path to the feedback JSON.
+    value: ${{ steps.feedback.outputs.result-path }}
+  artifact-id:
+    description: Uploaded feedback artifact ID.
+    value: ${{ steps.upload.outputs.artifact-id }}
+  artifact-url:
+    description: Uploaded feedback artifact URL.
+    value: ${{ steps.upload.outputs.artifact-url }}
+runs:
+  using: composite
+  steps:
+    - name: Check runner and event
+      shell: bash
+      run: |
+        if [[ "$RUNNER_OS" != Linux ]]; then
+          echo 'This action requires a Linux runner.' >&2
+          exit 2
+        fi
+        case "$GITHUB_EVENT_NAME" in
+          push|pull_request|workflow_dispatch) ;;
+          *) echo 'Feedback supports push, pull_request and workflow_dispatch events only.' >&2; exit 2 ;;
+        esac
+
+    - name: Install grader Java without changing assignment Java
+      id: grader-java
+      uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+      with:
+        distribution: temurin
+        java-version: '17'
+        set-default: false
+        overwrite-settings: false
+
+    - name: Build the pinned grader source
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      env:
+        GRADER_JAVA_HOME: ${{ steps.grader-java.outputs.path }}
+      run: |
+        timeout --signal=TERM --kill-after=30s 10m env \
+          JAVA_HOME="$GRADER_JAVA_HOME" PATH="$GRADER_JAVA_HOME/bin:$PATH" \
+          mvn -B -ntp -DskipTests package
+
+    - name: Run assignment tests and prepare feedback
+      id: feedback
+      shell: bash
+      env:
+        JAR_PATH: ${{ github.action_path }}/target/finmath-classroom.jar
+        GRADER_JAVA: ${{ steps.grader-java.outputs.path }}/bin/java
+        INPUT_RUBRIC: ${{ inputs.rubric }}
+        INPUT_WORKING_DIRECTORY: ${{ inputs.working-directory }}
+        INPUT_TIMEOUT_MINUTES: ${{ inputs.timeout-minutes }}
+      run: bash "$GITHUB_ACTION_PATH/scripts/autograding.sh"
+
+    - name: Upload feedback
+      id: upload
+      if: ${{ !cancelled() && steps.feedback.outputs.result-path != '' }}
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+      with:
+        name: classroom-feedback-${{ github.run_id }}-${{ github.run_attempt }}
+        path: ${{ steps.feedback.outputs.result-path }}
+        retention-days: ${{ inputs.retention-days }}
+        if-no-files-found: error
+
+    - name: Set feedback outcome
+      if: ${{ !cancelled() && steps.feedback.outputs.exit-code != '' }}
+      shell: bash
+      env:
+        FEEDBACK_EXIT_CODE: ${{ steps.feedback.outputs.exit-code }}
+      run: exit "$FEEDBACK_EXIT_CODE"

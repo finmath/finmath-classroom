@@ -21,7 +21,17 @@ tests or student code. Exit codes are 0 for all passed, 1 for failed/incomplete,
 and 2 for errors. Check the exit status before using an output; a rejected input
 can leave an older output file in place.
 
-Shared assignment-workflow distribution has not yet been implemented.
+Add `--summary /private/service/feedback.md` to also append a Markdown summary.
+The [autograding action and migration guide](autograding.md) describes shared Maven
+test execution and artifact upload. Action publication and a live pilot are pending.
+
+`feedback select --rubric FILE` prints the validated Surefire method selectors.
+`feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER
+--output FILE [--summary FILE]` packages existing reports and run context into the
+versioned uploaded-result format. It never executes tests, and requires fresh
+output files. Missing/error/timeout results have a null top-level score. See the
+[result contract](autograding.md#3-uploaded-result-contract-version-1) for fields and
+exit codes. Automatic server collection remains on the [roadmap](roadmap.md).
 
 ## Trusted-result CSV collection
 

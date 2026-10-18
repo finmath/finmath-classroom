@@ -32,6 +32,13 @@ class FeedbackScorerTest {
     }
 
     @Test
+    void selectsAllRubricMethodsInOneMavenInvocation() throws IOException {
+        assertEquals("example.Check#basic,example.Check#advanced", FeedbackScorer.testSelection(rubric));
+        writeRubric("{\"tests\":[" + BASIC.replace("basic", "unsafe;method") + "]}");
+        assertThrows(IllegalArgumentException.class, () -> FeedbackScorer.testSelection(rubric));
+    }
+
+    @Test
     void passingSuiteHasExplicitFeedbackProvenance() throws IOException {
         report(suite(testCase("basic"), testCase("advanced")));
         JsonNode result = score();
