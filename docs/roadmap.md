@@ -77,8 +77,9 @@ artifacts, with null scores. A received error or incomplete result also keeps it
 top-level null score. This remains separate from `collect`, which only consumes
 trusted final results.
 
-Complete a live end-to-end collection pilot using the deployed token and host.
-Test repeated sync, old-run reruns, temporary outages and rate-limit recovery, then
+An instructor-account pilot has collected passing and partial feedback on the
+live server. Repeat the end-to-end check with assistant accounts, including
+repeated sync, old-run reruns, temporary outages and rate-limit recovery, then
 back up and restore `feedback.db` alongside the registration data. Subsequent syncs
 retry missing/transient results, and rate-limit delays persist across restarts.
 Set artifact retention longer than the expected recovery window: artifacts deleted
@@ -130,6 +131,39 @@ format does not make it trustworthy.
 Feed those trusted results into the existing CSV collector. Moodle grade return,
 roster synchronization and richer administration can follow once the submission
 and grading contracts work end to end.
+
+## Assistant pilot before student distribution
+
+The live instructor-account test has exercised registration, repository creation,
+feedback collection and the latest-results table. Once the reviewed update is
+published and deployed using the [release updater](deployment.md#update-from-a-github-release),
+send the assignment acceptance URLs to a small group of assistants. Give them
+ordinary learner access for this test, using their own GitHub accounts.
+
+- Open an acceptance URL in a fresh/private browser, sign in, confirm the name,
+  accept the declaration, and accept the repository invitation. Check that the
+  repository is private and that the student and staff can access it.
+- Disconnect and reconnect on the acceptance page; check the green affirmative
+  and red disconnect controls. Return to an accepted assignment and confirm it
+  shows the same repository rather than creating another one.
+- Push a deliberately failing solution, then a passing solution. Check the GitHub
+  summary, points and uploaded feedback artifact for each run. Checkstyle/JavaDoc
+  remain advisory and independent of grading.
+- Collect with `sudo classroom feedback sync`, then inspect
+  `sudo classroom feedback list --latest --format table`. Compare each person's
+  repository, commit and points against GitHub. A new push creates a new run;
+  **ATTEMPT** counts reruns within one run. Repeated collection must not duplicate
+  results. Missing feedback must remain unavailable rather than becoming zero.
+- Confirm the optional collection timer is enabled if automatic polling is wanted.
+  Keep a consistent off-server backup and test its restoration separately before
+  broader use. Record any failure with time, assignment, run URL and the displayed
+  error reference; exclude tokens, registration keys and private student data from
+  public issue reports.
+
+This pilot is suitable for testing registration and student feedback. Current
+deadlines only close acceptance/retries, and collected student-workflow scores
+are not authoritative final grades. Agree an interim final-grading process before
+using the service for assessed coursework.
 
 ## Checks for the next implementation
 

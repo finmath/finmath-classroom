@@ -107,10 +107,12 @@ grade return are not implemented.
 | 2026-10-19: feedback collection | Added read-only GitHub Actions polling through `feedback sync`, offline `list`/`show`, a separate private SQLite history, and an optional five-minute systemd timer. The existing version-1 artifact format and student workflows remain compatible. Live server collection is pending deployment and a pilot. |
 | 2026-10-19: server CLI helper | Added `sudo classroom ...` for registration and feedback administration with fixed deployment paths, service-account execution and selective credential loading. Documented a personal sudo/SSH account and staged retirement of direct root SSH login. No server credentials or SSH settings were changed. |
 | 2026-10-19: feedback overview | Added `feedback list --latest --format table` for one row per current enrollment, including unavailable feedback and enrollments without stored attempts. The default remains all-history JSON; either option works separately. Requires the updated JAR, with no database migration or helper reinstall. |
+| 2026-10-19: assistant pilot preparation | Added green affirmative/red disconnect buttons, tested server release publication on `main`, and a manual release updater with checksum verification, stopped-service backups and JAR recovery. GitHub secondary rate-limit detection and interrupted-collection resumption are covered by offline fixtures. Release publication and the updated-server assistant pilot remain operator steps. |
 
 An instructor-account registration pilot and shared action execution were reported
-working on the public deployment. A complete learner pilot, the intended Moodle
-installation and live feedback collection still need validation.
+working on the public deployment, including collection of passing and partial
+feedback and the latest-results table. A complete learner/assistant pilot and the
+intended Moodle installation still need validation.
 No automatic submission capture, source archive or authoritative final runner has
 been implemented. The [README capability table](../README.md#what-is-available)
 describes current functionality; the roadmap describes future functionality.
@@ -129,8 +131,11 @@ java -jar target/finmath-classroom.jar registration assignments --data examples/
 Run CLI smoke checks relevant to the change and the read-only workspace check when
 changing workspace generation. Keep tests offline with respect to GitHub; Maven
 may resolve dependencies. Do not run assignment builds from the aggregate workspace
-as part of service verification. The example CI file is not an installed workflow
-and does not publish the JAR.
+as part of service verification. The installed
+[release workflow](../.github/workflows/release.yml) verifies the project and shell
+helpers, then publishes a server JAR and checksum for successful `main` builds.
+Pull requests receive verification only. It does not deploy to production or move
+the student feedback action's `v1` reference.
 
 Historical verification before feedback integration:
 

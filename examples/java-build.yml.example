@@ -1,5 +1,6 @@
 # Build workflow template for the administration repository, not student repositories.
-# Install as .github/workflows/build.yml when publishing this project.
+# Minimal reference only. This repository now installs .github/workflows/release.yml,
+# which also checks the CLI/helpers and publishes verified server release assets.
 name: Java build
 on:
   push:

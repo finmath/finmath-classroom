@@ -2,7 +2,8 @@
 
 Run one Java process under systemd, with SQLite and lecture files in a private
 directory. Plesk supplies HTTPS and forwards requests to the loopback listener.
-The application needs Java 17 or newer; build the JAR on your development machine.
+The application needs Java 17 or newer. Build the JAR on your development machine
+for the initial installation; subsequent updates can use verified GitHub Releases.
 The supplied service uses Ubuntu's Java 21 runtime at an explicit path on amd64.
 For another architecture or runtime, adjust that path in the service and server
 commands below.
@@ -21,6 +22,7 @@ administration, use the [CLI helper](#short-server-cli) and
 | `/var/lib/finmath-classroom/` | `lectures/`, `classroom.db` and optional `feedback.db`, directory mode `0700` | finmath-classroom |
 | `/etc/systemd/system/finmath-classroom.service` | Service definition | root |
 | `/etc/systemd/system/finmath-classroom-feedback.{service,timer}` | Optional feedback collector and schedule | root |
+| `/usr/local/sbin/classroom-update` | Optional manual updater from GitHub Releases | root |
 
 ## 1. Prepare the files
 
@@ -460,7 +462,7 @@ Plesk proxy settings. Keep an
 off-server copy and test restoration into a separate private directory. Plesk
 website backups may not include these application paths automatically.
 
-For an application update, build and verify locally, stop both services and the
+For a local application update, build and verify locally, stop both services and the
 timer, make the backup, replace only the JAR, then start the web service and timer
 and repeat the health/ready and collection checks. Retain
 the previous JAR for rollback; a version with a database migration also requires
@@ -470,3 +472,90 @@ The service runs independently of the SSH session and starts after a reboot.
 Monitor the public health endpoint, DNS resolution, backups and credential expiry.
 Automatic credential renewal and automated off-server backups are not supplied by
 these examples.
+
+## Update from a GitHub Release
+
+The installed [release workflow](../.github/workflows/release.yml) verifies Java
+and the packaged CLI/shell helpers on pull requests and updates to `main`.
+Successful `main` builds in `finmath/finmath-classroom` publish a GitHub Release
+tagged `server-<full-commit-SHA>`, containing:
+
+- `finmath-classroom.jar`
+- `finmath-classroom.jar.sha256` (SHA-256 of that JAR)
+
+Publication uploads both files to a draft before publishing. Re-running a
+published commit keeps its existing assets. A slower build of an older commit
+does not supersede the current main build as **Latest**. Workflow dispatch on
+`main` can retry a failed publication. The feedback action's `v1` reference is
+managed separately and is not moved by this workflow. Publishing the release
+does not connect to the production server or need its SSH/GitHub credentials.
+GitHub documents [release publication](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)
+and [latest release selection](https://docs.github.com/en/rest/releases/releases#get-the-latest-release).
+
+After reviewing and pushing the workflow, wait for **Verify and release server**
+to succeed and check that the release contains both assets. Before this first
+publication, the updater will have no usable server release to download.
+
+Install the reviewed updater once. On your **laptop**, from this repository:
+
+```sh
+ssh fries@h2862606.stratoserver.net 'install -d -m 700 ~/finmath-classroom-upload'
+scp deploy/classroom-update fries@h2862606.stratoserver.net:finmath-classroom-upload/
+```
+
+On the **server**, logged in as `fries`:
+
+```sh
+sudo apt-get install curl jq
+sudo install -o root -g root -m 755 ~/finmath-classroom-upload/classroom-update /usr/local/sbin/classroom-update
+classroom-update --help
+sudo classroom-update
+```
+
+The helper uses the deployment paths above, Java 21 at its explicit Ubuntu amd64
+path, and `http://127.0.0.1:8081/ready`. Adjust the reviewed helper before installation
+if your deployment differs. It resolves Latest once, downloads both assets from
+that same release over HTTPS, checks the checksum, and smoke-tests the JAR as the
+service account before stopping anything. It never executes downloaded shell
+code or reads the private environment file itself.
+
+It then stops the optional feedback timer/collector and the web service, creates
+a private backup of the old JAR and the entire data directory under
+`/var/backups/finmath-classroom/`, atomically replaces the JAR, and checks readiness
+after starting the app. The timer resumes only if it was active before the update.
+Avoid simultaneous manual CLI writes during this maintenance window; the updater
+lock serializes updates, not independent administrator commands. Pending browser
+sign-ins need to start again after the restart.
+
+If startup fails, the helper attempts to restore and start the previous JAR.
+It retains the backup and does not automatically restore data or import lecture
+configuration. Release updates must preserve database compatibility; read the
+release notes before a future migration. The supplied changes do not migrate
+either database. A checksum detects a mismatched/corrupt download; trust still
+depends on the repository and release publisher.
+
+To select a particular published server build, use its exact tag:
+
+```sh
+sudo classroom-update --release server-<full-40-character-commit-SHA>
+```
+
+Do not paste the placeholder literally. After updating, verify from the laptop:
+
+```sh
+curl --fail --show-error https://classroom.finmath.net/health
+curl --fail --show-error https://classroom.finmath.net/ready
+```
+
+On the server, check the instructor overview and, when appropriate, synchronize:
+
+```sh
+sudo classroom registration list --format table
+sudo classroom feedback sync
+sudo classroom feedback list --latest --format table
+```
+
+An existing `classroom` helper is separate from `classroom-update`; updating the
+JAR does not replace either helper or the systemd units. Follow the
+[assistant pilot](roadmap.md#assistant-pilot-before-student-distribution) before
+sharing assignment links with the full class.
