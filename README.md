@@ -12,6 +12,8 @@ still pending.
 
 **Start here:** [Getting started](GETTING_STARTED.md) walks through an offline
 trial, a local browser preview, and a first live GitHub assignment.
+The [project site](https://finmath.github.io/finmath-classroom/) introduces the
+teaching motivation and a small assignment-feedback demo.
 
 ## How it works
 
@@ -46,9 +48,9 @@ Self-declared names do not prove university identity or claim a roster entry by 
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
-| Shared Maven/JUnit feedback action and versioned artifacts | Implemented; action execution confirmed in an instructor pilot |
-| Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer; instructor-account collection confirmed |
-| Verified server releases and manual server updater | Implemented; first workflow publication and server update need an operator pilot |
+| Shared Maven/JUnit feedback action and versioned artifacts | Implemented |
+| Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer |
+| Verified server releases and manual server updater | Implemented |
 | Submission fetching, push/deadline tracking and source snapshots | Pending in Java |
 | Isolated final grader and Moodle grade return | Pending |
 
@@ -103,6 +105,7 @@ keep their own Git histories and builds.
   reliable result collection and final grading.
 - [Grading contract](docs/grading-contract.md): reference behavior for future
   submission capture and final grading.
+- [Project site](docs/site.md): build the Maven site and publish it with GitHub Pages.
 
 The server binds to `127.0.0.1:8080` by default. `/health` reports liveness;
 `/status` reports available capabilities. `/ready` is scoped to configured

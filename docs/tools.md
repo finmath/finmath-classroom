@@ -23,8 +23,8 @@ can leave an older output file in place.
 
 Add `--summary /private/service/feedback.md` to also append a Markdown summary.
 The [autograding action and migration guide](autograding.md) describes shared Maven
-test execution and artifact upload. The action has run in an instructor pilot;
-end-to-end server collection still needs a live check.
+test execution, artifact upload and automatic server collection. Validate the
+end-to-end flow with a test assignment before distributing links to a class.
 
 `feedback select --rubric FILE` prints the validated Surefire method selectors,
 or an empty line for a whole-suite rubric (the caller must omit `-Dtest`).

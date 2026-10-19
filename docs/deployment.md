@@ -10,10 +10,12 @@ commands below.
 
 These instructions use `classroom.example.org` and port `8081`. Replace the host
 with your own subdomain, and check that the port is free. Server commands run as
-root (or in a temporary `sudo -i` shell from your personal administrator account).
+root (or in a temporary `sudo -i` shell from an administrator account).
 The service itself runs as the separate `finmath-classroom` user. For everyday
 administration, use the [CLI helper](#short-server-cli) and
-[personal SSH account](#personal-ssh-account) described below.
+[administrator SSH account](#administrator-ssh-account) described below. Examples
+use `user` for that administrator and `server.example.org` for the SSH host;
+replace both with the values for your deployment.
 
 | Location | Contents | Owner |
 | --- | --- | --- |
@@ -277,7 +279,7 @@ Copy the two unit files from the development machine:
 
 ```sh
 scp deploy/finmath-classroom-feedback.service deploy/finmath-classroom-feedback.timer \
-  root@YOUR_SERVER:/root/finmath-classroom-upload/
+  root@server.example.org:/root/finmath-classroom-upload/
 ```
 
 On the server, install them and run one collection before enabling the schedule:
@@ -331,11 +333,11 @@ The optional [classroom helper](../deploy/classroom) replaces the Java executabl
 JAR and data arguments with a short command. It targets Ubuntu 24.04 and the paths
 in this guide; it does not require a new JAR when installed separately.
 
-After setting up a personal administrator account (here `fries`), copy the helper
-from the laptop:
+After setting up an administrator account, copy the helper from the development
+machine:
 
 ```sh
-scp deploy/classroom fries@server.example.org:classroom-upload
+scp deploy/classroom user@server.example.org:classroom-upload
 ```
 
 On the server, as that administrator:
@@ -365,46 +367,35 @@ Stop the web service, feedback timer and collector before `registration import`,
 The helper does not manage services automatically. These commands remain available
 directly with Java if the helper is not installed.
 
-### Personal SSH account
+### Administrator SSH account
 
-Use a personal account with `sudo` for administration, keeping the restricted
-`finmath-classroom` account solely for the application. The examples below use
-`fries`; choose a different name if that account is already used for another
-purpose. Keep the current root SSH session open until a second session has
-successfully tested the new login and `sudo`. Keep access to the provider's server
-console available as well.
-
-In the existing root session, change the root password interactively:
+Use a named account with `sudo` for administration, keeping the restricted
+`finmath-classroom` account solely for the application. Reuse an existing
+administrator account when appropriate. To create one, replace `user` with an
+unused account name and run the following as root or from a `sudo -i` shell:
 
 ```sh
-passwd root
+adduser user
+usermod -aG sudo user
 ```
 
-Save the new password in your password manager. Do not put it in a command,
-project file or chat. The command changes the Unix account password.
-See [passwd](https://manpages.ubuntu.com/manpages/noble/man1/passwd.1.html).
-
-For a new, unused account name, create the administrator and grant sudo access:
-
-```sh
-adduser fries
-usermod -aG sudo fries
-```
-
-Choose a separate password for this account; it is also used by `sudo`. On the
-laptop, either use an existing SSH key or create a dedicated, passphrase-protected
-key at an unused filename:
+Choose a password for this account; it is also used by `sudo`. Keep the existing
+administrator session open until a second session has tested the new login and
+`sudo`, and retain access to the provider's server console. On the development
+machine, use an existing SSH key or create a dedicated, passphrase-protected key
+at an unused filename:
 
 ```sh
-ssh-keygen -t ed25519 -a 64 -f ~/.ssh/id_ed25519_strato -C 'fries-strato'
-ssh-copy-id -i ~/.ssh/id_ed25519_strato.pub fries@server.example.org
-ssh -i ~/.ssh/id_ed25519_strato -o IdentitiesOnly=yes \
+ssh-keygen -t ed25519 -a 64 -f ~/.ssh/id_ed25519_classroom -C 'classroom-admin'
+ssh-copy-id -i ~/.ssh/id_ed25519_classroom.pub user@server.example.org
+ssh -i ~/.ssh/id_ed25519_classroom -o IdentitiesOnly=yes \
   -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
-  fries@server.example.org
+  user@server.example.org
 ```
 
 Do not overwrite an existing key. Only the `.pub` file is installed on the server;
-the private key stays on the laptop. In the new SSH session, verify elevation:
+the private key stays on the development machine. In the new SSH session, verify
+elevation:
 
 ```sh
 sudo -v
@@ -412,7 +403,7 @@ sudo whoami
 ```
 
 The last command must print `root`. Once both key authentication and sudo are
-confirmed, use `sudoedit /etc/ssh/sshd_config.d/00-personal-admin.conf` to add:
+confirmed, use `sudoedit /etc/ssh/sshd_config.d/00-classroom-admin.conf` to add:
 
 ```text
 PermitRootLogin no
@@ -429,16 +420,16 @@ Expect `permitrootlogin no`. If a different value appears, inspect the main file
 and earlier snippets; OpenSSH generally uses the first obtained value. Existing
 `Match` blocks can override settings for particular connections; inspect those
 too, using `sshd -T -C` for the relevant user/address. Once the configuration checks
-pass, reload with `sudo systemctl reload ssh.service` and test another personal
+pass, reload with `sudo systemctl reload ssh.service` and test another administrator
 SSH login before closing either existing session. This changes direct root SSH
 access; it does not remove the root account or sudo access.
 See [Ubuntu OpenSSH configuration](https://ubuntu.com/server/docs/how-to/security/openssh-server/)
 and [sshd_config](https://manpages.ubuntu.com/manpages/noble/man5/sshd_config.5.html).
 
 After disabling root SSH, replace the bootstrap guide's `scp root@...` commands
-with transfers to your personal account. Upload privately into your home directory,
+with transfers to the administrator account. Upload privately into its home directory,
 then install files with `sudo`; `/root/finmath-classroom-upload` is not directly
-accessible to the personal account.
+accessible to that account.
 
 ### Direct CLI and backups
 
@@ -492,18 +483,18 @@ does not connect to the production server or need its SSH/GitHub credentials.
 GitHub documents [release publication](https://docs.github.com/en/repositories/releasing-projects-on-github/managing-releases-in-a-repository)
 and [latest release selection](https://docs.github.com/en/rest/releases/releases#get-the-latest-release).
 
-After reviewing and pushing the workflow, wait for **Verify and release server**
-to succeed and check that the release contains both assets. Before this first
-publication, the updater will have no usable server release to download.
+Before updating, check that **Verify and release server** succeeded for the
+intended commit and that its published release contains both assets. The updater
+requires a published server release in `finmath/finmath-classroom`.
 
-Install the reviewed updater once. On your **laptop**, from this repository:
+Install the reviewed updater once. On the development machine, from this repository:
 
 ```sh
-ssh fries@h2862606.stratoserver.net 'install -d -m 700 ~/finmath-classroom-upload'
-scp deploy/classroom-update fries@h2862606.stratoserver.net:finmath-classroom-upload/
+ssh user@server.example.org 'install -d -m 700 ~/finmath-classroom-upload'
+scp deploy/classroom-update user@server.example.org:finmath-classroom-upload/
 ```
 
-On the **server**, logged in as `fries`:
+On the server, logged in as the administrator account:
 
 ```sh
 sudo apt-get install curl jq
@@ -530,9 +521,9 @@ sign-ins need to start again after the restart.
 If startup fails, the helper attempts to restore and start the previous JAR.
 It retains the backup and does not automatically restore data or import lecture
 configuration. Release updates must preserve database compatibility; read the
-release notes before a future migration. The supplied changes do not migrate
-either database. A checksum detects a mismatched/corrupt download; trust still
-depends on the repository and release publisher.
+release notes before an update that includes a migration. A checksum detects a
+mismatched or corrupt download; trust still depends on the repository and release
+publisher.
 
 To select a particular published server build, use its exact tag:
 
@@ -540,11 +531,12 @@ To select a particular published server build, use its exact tag:
 sudo classroom-update --release server-<full-40-character-commit-SHA>
 ```
 
-Do not paste the placeholder literally. After updating, verify from the laptop:
+Do not paste the placeholder literally. After updating, verify from the development
+machine:
 
 ```sh
-curl --fail --show-error https://classroom.finmath.net/health
-curl --fail --show-error https://classroom.finmath.net/ready
+curl --fail --show-error https://classroom.example.org/health
+curl --fail --show-error https://classroom.example.org/ready
 ```
 
 On the server, check the instructor overview and, when appropriate, synchronize:

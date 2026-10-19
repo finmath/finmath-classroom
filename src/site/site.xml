@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<site xmlns="http://maven.apache.org/SITE/2.0.0"
+      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+      xsi:schemaLocation="http://maven.apache.org/SITE/2.0.0 https://maven.apache.org/xsd/site-2.0.0.xsd"
+      name="finmath classroom" combine.self="override">
+  <publishDate position="none" />
+  <version position="none" />
+  <poweredBy />
+  <skin>
+    <groupId>org.apache.maven.skins</groupId>
+    <artifactId>maven-fluido-skin</artifactId>
+    <version>2.1.0</version>
+  </skin>
+  <body>
+    <head><![CDATA[<meta name="theme-color" content="#f7f5ee" />]]></head>
+    <footer><![CDATA[<div class="fc-footer"><p><strong>finmath classroom</strong><br />Built for teaching. Made to be understood.</p><p><a href="https://github.com/finmath/finmath-classroom">Source on GitHub</a><a href="https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md">Documentation</a><a href="https://github.com/finmath/finmath-classroom/issues">Questions and ideas</a></p></div>]]></footer>
+  </body>
+  <custom>
+    <fluidoSkin>
+      <topBarEnabled>false</topBarEnabled>
+      <sideBarEnabled>false</sideBarEnabled>
+      <skipGenerationDate>true</skipGenerationDate>
+    </fluidoSkin>
+  </custom>
+</site>

@@ -93,193 +93,66 @@ grade return are not implemented.
 
 ## Development history
 
-| Stage | Outcome |
+| Date | Development |
 | --- | --- |
 | Prototype | Explored administration, scoring and submission/deadline rules in Python. |
-| 2026-10-17: Java foundation | Added the executable JAR, offline scorer, final-result collector and workspace generator. |
-| 2026-10-17: registration | Added SQLite enrollment, GitHub OAuth, private template provisioning, recovery and optional Moodle LTI 1.3 launches. |
-| 2026-10-17: Java only | Removed the Python prototype at the user's request. Retained the example rubric and grading contract; this did not establish submission/grading feature parity. |
-| 2026-10-18: registration usability | Added accepted-assignment pages, explicit retry/refresh, username/ID repository suffixes and assignment-scoped URL key prefilling. |
-| 2026-10-18: administration | Added readable enrollment listings and exact local enrollment deletion for re-registration, retaining student identity. |
-| 2026-10-18: documentation | Replaced the migration handover and agent file with development notes and a roadmap, including the proposed shared feedback workflow and collection design. |
-| 2026-10-18: feedback integration | Added a shared Maven/JUnit action, a versioned result envelope and schema, method-selection/report CLI commands and a migration guide. Publication and the live Actions pilot remain pending. |
-| 2026-10-18: full assignment workflow | Restored the example's build, advisory JavaDoc/checkstyle and summary jobs; added ordinary pull-request feedback with explicit merge-commit identity. |
-| 2026-10-18: template migration | Added an explicit all-or-nothing Maven suite rubric, preserving existing weighted-method results; prepared pinned action references for assignment templates. |
-| 2026-10-18: central feedback updates | Switched assignment templates to the maintained `v1` action reference and added Maven `-U` to refresh SNAPSHOT checks despite dependency caching. |
-| 2026-10-19: registration diagnostics | Added error references correlated with sanitized GitHub operation/status logs, and accepted omission of the optional repository `is_template` field. Source templates still require an explicit true value; creation recovery and numeric identity checks are unchanged. |
-| 2026-10-19: name prefilling | Added editable name suggestions from the signed-in account's lecture record, falling back to its optional GitHub profile name. Verified roster preassignment and normal student acceptance; numeric identity, Moodle precedence and separate roster/accepted names remain unchanged. No database or configuration schema migration is required. |
-| 2026-10-19: bounded repository names | New acceptances use at most 78 prefix characters, an eight-character random hex identifier, and at most 12 lowercase GitHub username characters. Names are reserved transactionally with local collision checks; existing names and full numeric identities stay intact. This requires a JAR update only, without a configuration or database migration. |
-| 2026-10-19: feedback collection | Added read-only GitHub Actions polling through `feedback sync`, offline `list`/`show`, a separate private SQLite history, and an optional five-minute systemd timer. The existing version-1 artifact format and student workflows remain compatible. Live server collection is pending deployment and a pilot. |
-| 2026-10-19: server CLI helper | Added `sudo classroom ...` for registration and feedback administration with fixed deployment paths, service-account execution and selective credential loading. Documented a personal sudo/SSH account and staged retirement of direct root SSH login. No server credentials or SSH settings were changed. |
-| 2026-10-19: feedback overview | Added `feedback list --latest --format table` for one row per current enrollment, including unavailable feedback and enrollments without stored attempts. The default remains all-history JSON; either option works separately. Requires the updated JAR, with no database migration or helper reinstall. |
-| 2026-10-19: assistant pilot preparation | Added green affirmative/red disconnect buttons, tested server release publication on `main`, and a manual release updater with checksum verification, stopped-service backups and JAR recovery. GitHub secondary rate-limit detection and interrupted-collection resumption are covered by offline fixtures. Release publication and the updated-server assistant pilot remain operator steps. |
+| 2026-10-17 | Introduced the Java executable JAR, offline scorer, result collector, workspace generator, SQLite registration, GitHub OAuth and optional Moodle launches. Retired the prototype; submission capture and authoritative grading remain future work. |
+| 2026-10-18 | Added accepted-assignment pages, provisioning recovery, enrollment administration and assignment-scoped key prefilling. Added shared Maven/JUnit feedback, versioned artifacts, weighted-method and whole-suite rubrics, and advisory build/JavaDoc/checkstyle jobs. |
+| 2026-10-18 | Adopted a maintained `v1` action reference and Maven `-U` for updated SNAPSHOT test artifacts. Local rubric/workflow changes still require changes in student repositories. |
+| 2026-10-19 | Improved sanitized diagnostics, account-linked name suggestions, roster preassignment and bounded repository names. Existing numeric identities and repository names remain stable. |
+| 2026-10-19 | Added read-only GitHub feedback collection, a separate private history database, a systemd timer, and latest-result tables. Added rate-limit deferral and repository-level resumption. |
+| 2026-10-19 | Added Ubuntu/Plesk deployment examples, CLI and release-update helpers, verified JAR publication, and clearer registration actions. |
+| 2026-10-19 | Separated reusable documentation from private operator notes and added a Maven project site with GitHub Pages publication. |
 
-An instructor-account registration pilot and shared action execution were reported
-working on the public deployment, including collection of passing and partial
-feedback and the latest-results table. A complete learner/assistant pilot and the
-intended Moodle installation still need validation.
-No automatic submission capture, source archive or authoritative final runner has
-been implemented. The [README capability table](../README.md#what-is-available)
-describes current functionality; the roadmap describes future functionality.
+The [README capability table](../README.md#what-is-available) describes the current
+implementation. The [roadmap](roadmap.md) covers source snapshots, authoritative
+final grading, Moodle grade return and remaining operational checks. Validate
+registration, invitations and feedback on each deployment using a separate learner
+account; local tests do not establish the permissions or policies of a particular
+GitHub organization or Moodle installation.
 
 ## Verification
 
-For Java changes, run from this repository:
+Run from this repository with JDK 17 or newer and Maven 3.6.3 or newer:
 
 ```sh
 mvn -B -ntp verify
 java -jar target/finmath-classroom.jar --help
 java -jar target/finmath-classroom.jar registration check --data examples/registration
 java -jar target/finmath-classroom.jar registration assignments --data examples/registration
+bash scripts/test-autograding.sh
+bash scripts/test-classroom-wrapper.sh
+bash scripts/test-classroom-update.sh
+bash scripts/test-server-release.sh
+mvn -B -ntp site
+bash scripts/check-site.sh
 ```
 
-Run CLI smoke checks relevant to the change and the read-only workspace check when
-changing workspace generation. Keep tests offline with respect to GitHub; Maven
-may resolve dependencies. Do not run assignment builds from the aggregate workspace
-as part of service verification. The installed
-[release workflow](../.github/workflows/release.yml) verifies the project and shell
-helpers, then publishes a server JAR and checksum for successful `main` builds.
-Pull requests receive verification only. It does not deploy to production or move
-the student feedback action's `v1` reference.
+Java tests use temporary databases, fake adapters and local HTTP/JWT fixtures.
+They do not require GitHub credentials. Maven may resolve dependencies. Some
+sandboxed environments need permission for local sockets and JVM instrumentation.
+Run relevant packaged CLI smoke checks and the read-only workspace check when
+changing those tools. Do not run assignment builds from the aggregate workspace
+as part of service verification.
 
-Historical verification before feedback integration:
+The autograding shell checks run the packaged scorer against fake assignment tools
+and fixture reports. Update/publication checks use fake service and GitHub commands;
+they do not deploy or publish. The site checker validates generated local links
+and excludes private artifacts. These checks complement a separate browser and
+server pilot.
 
-- On 2026-10-17, the foundation passed 85 Java tests; registration and prototype
-  removal passed 162. JDK 17 CLI/server smoke checks also passed. The old Python
-  test results are historical and are no longer current verification commands.
-- On 2026-10-18, usability changes passed 179 Java tests and administration changes
-  passed 185, without failures, errors or skips. Maven ran on JDK 25.0.3 with a Java
-  17 target; packaged CLI smoke checks ran on JDK 17.0.12. Tests used temporary
-  databases, fake GitHub adapters and local HTTP/JWT fixtures.
+The application baseline on 2026-10-19 passed 352 Java tests with no failures,
+errors or skips, 17 autograding scenarios, 15 updater scenarios, 16 publication
+executions and the CLI-helper checks. Packaged CLI smoke checks passed on Java 17,
+including read-only listing without creating a feedback database. Historical
+prototype tests are not verification of pending Java features.
 
-Feedback integration verification on 2026-10-18:
+## Publication boundaries
 
-- `mvn -B -ntp verify` passed 202 tests without failures, errors or skips and
-  produced the executable JAR. The initial sandboxed run blocked local mock-server
-  sockets and JVM test instrumentation; the rerun with those permissions passed.
-- `scripts/test-autograding.sh` passed 13 offline scenarios with the packaged JAR
-  on JDK 17.0.12, fake assignment tools and fixture reports. Checks cover passing
-  and partial results, missing/stale/malformed reports, timeouts, abnormal process
-  exits, commit/event checks and retaining the assignment's Java environment.
-- Bash syntax and YAML parsing passed for the action/scripts and example workflow.
-- The JSON Schema and example artifact passed Draft 2020-12 validation, as did
-  artifacts emitted on Java 17 for all five effective result states. All 45 local
-  documentation links resolved. No student code, live GitHub operations or public
-  deployment were involved.
-
-Full workflow follow-up on 2026-10-18: the shell checks passed all 14 scenarios,
-including pull-request merge identity and rejection of `pull_request_target`.
-The example's YAML, grading independence, summary dependencies and rendering of
-success/failure/skipped/cancelled outcomes were checked locally. No Java code
-changed in this follow-up; Maven verification above was not rerun.
-
-These checks do not establish live Actions/GitHub/Moodle compatibility or validate
-the pending submission and final-grading features. Keep implemented capabilities,
-proposals and executed verification distinct.
-
-Template migration verification on 2026-10-18: `mvn -B -ntp verify` passed all
-209 tests. The shell integration checks passed 17 scenarios on Java 17, including
-whole-suite selection, full/zero points and unavailable reports. The result schema
-validated the existing method example and Java-produced suite artifacts for all
-five result statuses. YAML and job dependency checks passed for the common example
-and 14 prepared template workflows. Assignment builds and live Actions runs were
-not executed; publication and the live pilot remain pending.
-
-The central-update follow-up passed all 17 offline shell scenarios on Java 17,
-with `-U` required for both method and suite grading. YAML checks confirmed that
-all 14 template workflows changed only their action reference, apart from comments.
-No Java code changed, so Maven verification above was not repeated. The initial
-`v1.0.0` release tag and moving `v1` tag are prepared locally; publication and a live
-SNAPSHOT-update pilot remain pending.
-
-Deployment preparation on 2026-10-19 added a systemd service, a credential-free
-environment example and an [Ubuntu/Plesk guide](deployment.md). `mvn -B -ntp verify`
-passed all 209 tests and rebuilt the JAR. Java 17 CLI checks covered help,
-configuration validation, import and listing against disposable examples. A local
-Java 17 server returned health/readiness and the acceptance page, with Secure,
-HttpOnly and SameSite=Lax session cookies for an HTTPS public origin. This used
-placeholder credentials and made no GitHub requests. The earlier sandboxed run
-could not open test sockets or attach Mockito; the permitted rerun passed.
-The operator subsequently installed the service on Ubuntu 24.04 with Java 21,
-imported the teaching configuration and confirmed local readiness. Independent
-public checks passed for HTTPS health/readiness and the acceptance page, an
-HTTP-to-HTTPS redirect, and Secure/HttpOnly/SameSite=Lax session cookies. These
-checks establish the serving path; live GitHub sign-in, provisioning and learner
-access still need a complete browser pilot. Host-specific log sanitization and
-rate limiting also remain to be checked before distributing course links.
-
-Registration diagnostics verification on 2026-10-19: `mvn -B -ntp verify` passed
-222 tests with no failures, errors or skips. Tests cover operation/status labels,
-secret-free logging and error references, optional repository metadata, and the
-existing identity/retry guards. The rebuilt JAR passed configuration validation
-and assignment-listing CLI smoke checks on Java 17. No deployment or live GitHub
-writes were performed for this change; the reported production acceptance failure
-still requires correlation with the server's saved registration and diagnostics.
-
-Name-prefilling verification on 2026-10-19: `mvn -B -ntp verify` passed all 240
-tests, with no failures, errors or skips. Coverage includes optional GitHub profile
-names, roster import without acceptance, numeric identity after a username change,
-lecture/account isolation, editable escaped suggestions, Moodle precedence and
-the browser flow through OAuth and real SQLite persistence with a fake GitHub
-adapter. The packaged JAR passed Java 17 CLI checks for configuration, assignment
-listing, disposable offline import, repeated import and student/enrollment listing.
-The private teaching configuration also passed validation. No deployment or live
-GitHub writes were performed; the new name-prefilling browser pilot is pending.
-
-Bounded repository-name verification on 2026-10-19: `mvn -B -ntp verify` passed
-all 246 tests, with no failures, errors or skips. Tests cover exact 100-character
-names, full numeric identity retention, case-insensitive collisions after
-truncation, bounded allocation failure and transaction rollback, and preservation
-of existing names through retries, username changes and restarts. The browser
-integration test exercises persistence and access grants with a fake GitHub
-adapter. Java 17 packaged CLI checks passed for help, configuration validation,
-assignment listing, disposable offline import, student/enrollment listing and
-database permissions; the private teaching configuration also passed validation.
-The JAR was rebuilt; deployment and a live acceptance with the new naming rule
-remain pending.
-
-Feedback collection verification on 2026-10-19: `mvn -B -ntp verify` passed all
-333 tests without failures, errors or skips. Offline tests cover API permissions
-and rate-limit responses, unfiltered pagination with unrelated PR/tag runs,
-credential-free artifact redirects, bounded ZIP/JSON validation, run correlation,
-partial scores, missing/expired feedback, old reruns, immutable received history,
-precise decimal storage and recovery after unavailable older attempts. The
-packaged JAR passed Java 17 CLI checks for offline import, read-only listing,
-empty synchronization, missing-result errors, private database permissions and
-an unchanged registration database. All 17 existing action shell scenarios also
-passed on Java 17 with fake assignment tools. No live GitHub requests, student
-code execution, deployment or tag changes were performed. The supplied systemd
-units still need validation on the Linux server and an end-to-end artifact pilot.
-
-Server CLI helper verification on 2026-10-19: Bash syntax checks and
-`bash scripts/test-classroom-wrapper.sh` passed locally. Checks cover command
-allowlisting, selective credential loading, fixed data paths, literal arguments,
-data-override rejection and refusal to run administrative commands without sudo.
-No sudo, systemd, Java or GitHub operations were executed by these shell checks.
-No Java changed in this follow-up, so Maven verification was not repeated. Actual
-execution of the helper on Ubuntu and the personal SSH login remain operator steps.
-
-Assistant-pilot preparation verification on 2026-10-19:
-
-- `mvn -B -ntp verify` passed all 352 Java tests with no failures, errors or skips,
-  including secondary rate limits, persistent repository resume order, scoped
-  retries and unchanged permission-error handling. Maven used JDK 25.0.3 with the
-  Java 17 target; local HTTP fixtures and JVM test instrumentation required the
-  normal sandbox exception.
-- The packaged JAR passed Java 17 help, configuration check, disposable import and
-  read-only feedback listing smoke checks. Listing did not modify the registration
-  database or create a feedback database. All 17 autograding shell scenarios and
-  the existing CLI-wrapper checks passed.
-- The updater passed 15 offline scenarios, including download/checksum rejection,
-  optional timer state, preservation of data/sidecars, and recovery after startup,
-  stop, backup and replacement failures. Publication passed 16 offline executions
-  with a fake GitHub CLI, covering draft retries, existing published assets, failed
-  uploads, wrong/failed tag lookups and newer main commits. Bash syntax and workflow
-  YAML parsing passed. These checks performed no production operations.
-- Button labels, form actions and CSRF handling remain unchanged. Green/red button
-  text contrast is above 6:1, with a visible keyboard-focus indicator.
-
-The first real Actions publication, server update and assistant browser pilot
-remain to be run after review and push. Neither database schema changes; no live
-GitHub writes, deployment, credential changes or student-code execution were
-performed during this implementation.
+The installed [server-release workflow](../.github/workflows/release.yml) verifies
+the project and publishes a JAR/checksum for successful `main` builds. Production
+updates use the manual helper; publishing a binary does not deploy a server or
+move the feedback action's `v1` reference. The separate
+[Pages workflow](../.github/workflows/pages.yml) builds the public Maven site and
+publishes only `target/site`. Pull requests receive validation without publication.
+See the [site guide](site.md) for local preview and initial Pages setup.

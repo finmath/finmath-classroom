@@ -6,9 +6,9 @@ Surefire XML reports, writes a GitHub job summary and uploads a versioned result
 The Java scorer only reads files; Maven executes assignment code on the runner.
 Use disposable GitHub-hosted runners with no classroom credentials.
 
-The shared action lives in `finmath/finmath-classroom`. It has now run on GitHub
-and generated `result.json`. Server collection is implemented with administrative
-commands and an optional timer; its end-to-end GitHub pilot remains pending.
+The shared action lives in `finmath/finmath-classroom`. Server collection is
+implemented with administrative commands and an optional timer. Validate the
+end-to-end flow against the permissions and configuration of each deployment.
 Authoritative final grading remains future work.
 
 ## 1. Migrate `.github/classroom/autograding.json`
@@ -294,8 +294,7 @@ suite rubrics. Existing method rubrics and their feedback retain their format.
 
 Run `mvn -B -ntp verify`, then `bash scripts/test-autograding.sh` for the action's
 offline shell integration checks with a fake Maven process and the real JAR. These
-checks do not run student code or contact GitHub. The action has executed on
-GitHub and generated a result; complete the collection pilot with passing and
+checks do not run student code or contact GitHub. Complete a live collection pilot with passing and
 failing tests, a timeout and a rerun. Inspect the summary, uploaded artifact and
 server's `feedback list`/`show` output, including attempt number, exact commit and
 null scores for unavailable results. Stop collection temporarily, then verify

@@ -13,7 +13,15 @@
   <artifactId>finmath-classroom</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <name>finmath classroom</name>
-  <description>Teaching repository administration and grading tools</description>
+  <description>Self-hosted programming assignments with GitHub sign-in, private repositories and automatic test feedback</description>
+  <url>https://finmath.github.io/finmath-classroom/</url>
+  <inceptionYear>2026</inceptionYear>
+  <scm>
+    <connection>scm:git:https://github.com/finmath/finmath-classroom.git</connection>
+    <developerConnection>scm:git:ssh://git@github.com/finmath/finmath-classroom.git</developerConnection>
+    <url>https://github.com/finmath/finmath-classroom</url>
+    <tag>HEAD</tag>
+  </scm>
   <properties>
     <java.version>17</java.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
@@ -44,6 +52,14 @@
   <build>
     <finalName>finmath-classroom</finalName>
     <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-site-plugin</artifactId>
+        <version>3.22.0</version>
+        <configuration>
+          <generateReports>false</generateReports>
+        </configuration>
+      </plugin>
       <plugin>
         <groupId>org.springframework.boot</groupId>
         <artifactId>spring-boot-maven-plugin</artifactId>

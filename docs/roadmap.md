@@ -77,8 +77,7 @@ artifacts, with null scores. A received error or incomplete result also keeps it
 top-level null score. This remains separate from `collect`, which only consumes
 trusted final results.
 
-An instructor-account pilot has collected passing and partial feedback on the
-live server. Repeat the end-to-end check with assistant accounts, including
+Validate end-to-end collection with separate learner accounts, including
 repeated sync, old-run reruns, temporary outages and rate-limit recovery, then
 back up and restore `feedback.db` alongside the registration data. Subsequent syncs
 retry missing/transient results, and rate-limit delays persist across restarts.
@@ -134,9 +133,8 @@ and grading contracts work end to end.
 
 ## Assistant pilot before student distribution
 
-The live instructor-account test has exercised registration, repository creation,
-feedback collection and the latest-results table. Once the reviewed update is
-published and deployed using the [release updater](deployment.md#update-from-a-github-release),
+After installing the service or applying a reviewed update with the
+[release updater](deployment.md#update-from-a-github-release),
 send the assignment acceptance URLs to a small group of assistants. Give them
 ordinary learner access for this test, using their own GitHub accounts.
 

@@ -275,12 +275,12 @@ service and environment examples.
 
 Run one service instance behind an HTTPS reverse proxy for public use, with request
 limits, registration rate limiting and monitoring. The server binds to loopback by
-default. A remote browser cannot reach a service running only on your laptop
-through `127.0.0.1`; use the public HTTPS origin for a student pilot. Suppress
+default. A remote browser cannot reach a service running only on the development
+machine through `127.0.0.1`; use the public HTTPS origin for a student pilot. Suppress
 registration-key and OAuth/LTI query strings and request bodies in logs.
 Sessions and pending logins are in memory; interrupted sign-ins restart after a
-service restart. Public hosting and a complete learner-account pilot still require
-validation.
+service restart. Validate the public hosting and complete a learner-account pilot
+for each deployment before distributing assignment links.
 
 ## Moodle launch
 
