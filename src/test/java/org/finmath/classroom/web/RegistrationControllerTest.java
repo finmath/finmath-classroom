@@ -1,8 +1,11 @@
 package org.finmath.classroom.web;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -20,6 +23,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 
+import java.io.IOException;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -29,6 +33,13 @@ import java.util.Date;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+import ch.qos.logback.classic.Logger;
+import ch.qos.logback.classic.spi.ILoggingEvent;
+import ch.qos.logback.core.read.ListAppender;
 
 import com.nimbusds.jwt.JWTClaimsSet;
 import com.nimbusds.jwt.PlainJWT;
@@ -38,6 +49,9 @@ import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
 import org.finmath.classroom.registration.ClassroomConfig.Student;
 import org.finmath.classroom.registration.EnrollmentStore.Enrollment;
+import org.finmath.classroom.registration.GitHubException;
+import org.finmath.classroom.registration.GitHubException.Category;
+import org.finmath.classroom.registration.GitHubException.Operation;
 import org.finmath.classroom.registration.GitHubGateway;
 import org.finmath.classroom.registration.GitHubGateway.User;
 import org.finmath.classroom.registration.RegistrationService;
@@ -46,7 +60,9 @@ import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.CsvSource;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
+import org.slf4j.LoggerFactory;
 import org.springframework.mock.web.MockHttpSession;
 import org.springframework.security.oauth2.jwt.Jwt;
 import org.springframework.test.web.servlet.MockMvc;
@@ -203,6 +219,51 @@ class RegistrationControllerTest {
 				.param("githubLogin", "other-user")).andExpect(status().isSeeOther()).andExpect(header().string("Location", "/accept/lecture/task"));
 		verify(registration).retry("lecture", "task", user);
 		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+	}
+
+	@ParameterizedTest
+	@ValueSource(booleans = {false, true})
+	void testIoFailureReferenceCorrelatesWithSafeDiagnosticsOnly(boolean githubFailure) throws Exception {
+		MockHttpSession session = session();
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		IOException failure = githubFailure
+				? new GitHubException(Operation.GRANT_STAFF, Category.HTTP_STATUS, 403)
+				: new IOException("private-exception-message");
+		failure.initCause(new IOException("private-cause"));
+		failure.addSuppressed(new IOException("private-suppressed"));
+		when(registration.retry("lecture", "task", user)).thenThrow(failure);
+		Logger logger = (Logger) LoggerFactory.getLogger(RegistrationController.class);
+		ListAppender<ILoggingEvent> appender = new ListAppender<>();
+		appender.start();
+		logger.addAppender(appender);
+		try {
+			String previousReference = null;
+			for(int attempt = 0; attempt < 2; attempt++) {
+				String body = mvc.perform(post("/accept/lecture/task/retry").session(session)
+						.param("csrf", (String) session.getAttribute("csrf")).param("code", "private-oauth-code")
+						.param("assignmentKey", "private-registration-key"))
+						.andExpect(status().isServiceUnavailable())
+						.andExpect(content().string(containsString("Registration could not finish")))
+						.andReturn().getResponse().getContentAsString();
+				Matcher reference = Pattern.compile("Reference: ([0-9a-f-]{36})").matcher(body);
+				assertTrue(reference.find());
+				String id = UUID.fromString(reference.group(1)).toString();
+				assertNotEquals(previousReference, id);
+				previousReference = id;
+				assertEquals(attempt + 1, appender.list.size());
+				ILoggingEvent event = appender.list.get(attempt);
+				assertEquals("Registration failed reference=" + id + (githubFailure
+						? " operation=GRANT_STAFF category=HTTP_STATUS httpStatus=403" : " category=IO"), event.getFormattedMessage());
+				assertNull(event.getThrowableProxy());
+				assertFalse(body.contains("private-"));
+				assertFalse(body.contains("GRANT_STAFF"));
+				assertFalse(body.contains("HTTP_STATUS"));
+			}
+		} finally {
+			logger.detachAppender(appender);
+			appender.stop();
+		}
 	}
 
 	@Test

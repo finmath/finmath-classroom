@@ -179,3 +179,11 @@ HTTP-to-HTTPS redirect, and Secure/HttpOnly/SameSite=Lax session cookies. These
 checks establish the serving path; live GitHub sign-in, provisioning and learner
 access still need a complete browser pilot. Host-specific log sanitization and
 rate limiting also remain to be checked before distributing course links.
+
+Registration diagnostics verification on 2026-10-19: `mvn -B -ntp verify` passed
+222 tests with no failures, errors or skips. Tests cover operation/status labels,
+secret-free logging and error references, optional repository metadata, and the
+existing identity/retry guards. The rebuilt JAR passed configuration validation
+and assignment-listing CLI smoke checks on Java 17. No deployment or live GitHub
+writes were performed for this change; the reported production acceptance failure
+still requires correlation with the server's saved registration and diagnostics.
