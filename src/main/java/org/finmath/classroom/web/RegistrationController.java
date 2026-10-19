@@ -99,7 +99,7 @@ public class RegistrationController {
 				body.append("<p>Your acceptance is recorded.</p><p>Registered as: <strong>").append(escape(enrollment.name()))
 						.append("</strong><br>Accepted: ").append(escape(enrollment.acceptedAt())).append("</p>");
 				if(enrollment.repositoryId() != null) {
-					body.append("<p><a href='").append(escape(enrollment.repositoryUrl())).append("'>Open your repository</a></p>");
+					body.append("<p><a class='button-link button-affirmative' href='").append(escape(enrollment.repositoryUrl())).append("'>Open your repository</a></p>");
 				}
 				body.append("<p>").append(switch(enrollment.status()) {
 					case "active" -> "Repository access is active.";
@@ -318,9 +318,9 @@ public class RegistrationController {
 				.body("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
 						+ "<title>Assignment registration</title><style>body{font:1.1rem system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;line-height:1.5}"
 						+ "label{display:block;margin:1rem 0}input:not([type=checkbox]){display:block;width:100%;box-sizing:border-box;padding:.5rem}"
-						+ "button{padding:.6rem 1rem;border:2px solid transparent;border-radius:.3rem;font:inherit;font-weight:600;color:#fff;cursor:pointer}"
+						+ "button,a.button-link{display:inline-block;padding:.6rem 1rem;border:2px solid transparent;border-radius:.3rem;font:inherit;font-weight:600;color:#fff;text-decoration:none;cursor:pointer}"
 						+ ".button-affirmative{background:#166534}.button-affirmative:hover{background:#14532d}"
 						+ ".button-cancel{background:#b91c1c}.button-cancel:hover{background:#991b1b}"
-						+ "button:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}form{margin:1.5rem 0}</style></head><body><h1>" + title + "</h1>" + body + "</body></html>");
+						+ "button:focus-visible,a.button-link:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}form{margin:1.5rem 0}</style></head><body><h1>" + title + "</h1>" + body + "</body></html>");
 	}
 }
