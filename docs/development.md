@@ -258,3 +258,28 @@ data-override rejection and refusal to run administrative commands without sudo.
 No sudo, systemd, Java or GitHub operations were executed by these shell checks.
 No Java changed in this follow-up, so Maven verification was not repeated. Actual
 execution of the helper on Ubuntu and the personal SSH login remain operator steps.
+
+Assistant-pilot preparation verification on 2026-10-19:
+
+- `mvn -B -ntp verify` passed all 352 Java tests with no failures, errors or skips,
+  including secondary rate limits, persistent repository resume order, scoped
+  retries and unchanged permission-error handling. Maven used JDK 25.0.3 with the
+  Java 17 target; local HTTP fixtures and JVM test instrumentation required the
+  normal sandbox exception.
+- The packaged JAR passed Java 17 help, configuration check, disposable import and
+  read-only feedback listing smoke checks. Listing did not modify the registration
+  database or create a feedback database. All 17 autograding shell scenarios and
+  the existing CLI-wrapper checks passed.
+- The updater passed 15 offline scenarios, including download/checksum rejection,
+  optional timer state, preservation of data/sidecars, and recovery after startup,
+  stop, backup and replacement failures. Publication passed 16 offline executions
+  with a fake GitHub CLI, covering draft retries, existing published assets, failed
+  uploads, wrong/failed tag lookups and newer main commits. Bash syntax and workflow
+  YAML parsing passed. These checks performed no production operations.
+- Button labels, form actions and CSRF handling remain unchanged. Green/red button
+  text contrast is above 6:1, with a visible keyboard-focus indicator.
+
+The first real Actions publication, server update and assistant browser pilot
+remain to be run after review and push. Neither database schema changes; no live
+GitHub writes, deployment, credential changes or student-code execution were
+performed during this implementation.
