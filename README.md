@@ -47,7 +47,8 @@ Self-declared names do not prove university identity or claim a roster entry by 
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
 | Shared Maven/JUnit feedback action and versioned artifacts | Implemented; action execution confirmed in an instructor pilot |
-| Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer; live collection pilot pending |
+| Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer; instructor-account collection confirmed |
+| Verified server releases and manual server updater | Implemented; first workflow publication and server update need an operator pilot |
 | Submission fetching, push/deadline tracking and source snapshots | Pending in Java |
 | Isolated final grader and Moodle grade return | Pending |
 
@@ -91,7 +92,7 @@ keep their own Git histories and builds.
 - [Registration reference](docs/registration.md): configuration fields, environment
   variables, GitHub permissions, Moodle setup and recovery.
 - [Ubuntu/Plesk deployment](docs/deployment.md): private service setup, HTTPS,
-  initial import, verification and backups.
+  initial import, verification, release updates and backups.
 - [Other tools](docs/tools.md): local scoring, CSV collection and optional
   Maven/IntelliJ workspace generation.
 - [Autograding migration](docs/autograding.md): replacement GitHub action, rubric
@@ -108,5 +109,8 @@ The server binds to `127.0.0.1:8080` by default. `/health` reports liveness;
 registration and does not verify GitHub permissions, connectivity or final grading.
 
 Operate one service instance with private persistent storage and backups.
-Automatic credential renewal and deployment automation are not implemented.
+Updates to `main` run verification and publish a JAR and checksum as a GitHub
+Release. Production updates remain manual with `sudo classroom-update`; see the
+[release update guide](docs/deployment.md#update-from-a-github-release).
+Automatic credential renewal is not implemented.
 Java is the sole implementation; no Python runtime is required.

@@ -68,7 +68,7 @@ public final class FeedbackListing {
                 "artifactName", "artifactDigest", "archiveSha256", "feedbackStatus", "score", "maxScore")) {
             row.put(field, null);
         }
-        boolean unavailable = check != null && "unavailable".equals(check.get("status"));
+        boolean unavailable = check != null && ("unavailable".equals(check.get("status")) || "deferred".equals(check.get("status")));
         row.put("collectionStatus", unavailable ? "unavailable" : "not_collected");
         String problem = enrollment.repositoryId() == null ? "Repository has not been provisioned."
                 : "No workflow attempts have been collected for this enrollment.";

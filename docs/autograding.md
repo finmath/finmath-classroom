@@ -397,7 +397,20 @@ The sync report returns received, already-stored, unavailable and error counts.
 Exit 2 indicates errors or a deferred rate limit; exit 0 means the scan completed,
 so inspect unavailable counts before assuming every result was collected.
 Transient failures and missing artifacts are retried by subsequent syncs; a saved
-rate-limit delay survives a service restart.
+rate-limit delay survives a service restart. Secondary-limit HTTP 403 responses
+also defer collection when GitHub provides only the error message; without a
+valid retry hint the delay is at least one minute. An ordinary permission-related
+403 remains an access error. See GitHub's
+[rate-limit guidance](https://docs.github.com/en/rest/using-the-rest-api/rate-limits-for-the-rest-api#exceeding-the-rate-limit).
+
+Repository checks use status `deferred` to remember the interrupted enrollment.
+After the delay, synchronization resumes matching deferred repositories first,
+then their successors before wrapping around. Filtered invocations preserve
+other assignments' markers. No database migration is required. This checkpoints
+the repository, not an individual run/page: a single repository whose unresolved
+history needs more than an entire API budget can still repeatedly defer. Finer
+history checkpoints remain future work; use scoped collection to keep other
+assignments progressing in that exceptional case.
 
 Each run/artifact listing is bounded to 100 pages of 100 records, and runs to
 1,000 attempts. Exceeding a listing limit reports an error rather than silently

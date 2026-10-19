@@ -92,7 +92,7 @@ public class RegistrationController {
 			body.append("<p>Connect your GitHub account, then confirm your details to accept this assignment.</p>")
 					.append("<form method='post' action='/auth/github/start'>").append(hidden("csrf", csrf))
 					.append(hidden("lectureId", lectureId)).append(hidden("assignmentId", assignmentId))
-					.append("<button>Connect GitHub account</button></form>");
+					.append("<button class='button-affirmative'>Connect GitHub account</button></form>");
 		} else {
 			body.append("<p>Connected GitHub account: <strong>").append(escape(user.login())).append("</strong></p>");
 			if(enrollment != null) {
@@ -114,7 +114,7 @@ public class RegistrationController {
 				}
 				if("retryable".equals(enrollment.status()) || "invitation_pending".equals(enrollment.status())) {
 					body.append("<form method='post' action='").append(path).append("/retry'>").append(hidden("csrf", csrf))
-							.append("<button>").append("retryable".equals(enrollment.status()) ? "Retry repository setup" : "Refresh access status")
+							.append("<button class='button-affirmative'>").append("retryable".equals(enrollment.status()) ? "Retry repository setup" : "Refresh access status")
 							.append("</button></form>");
 				}
 			} else {
@@ -133,11 +133,11 @@ public class RegistrationController {
 							.append("<label>Assignment registration key<input type='password' name='assignmentKey' value='").append(escape(keys.assignmentKey())).append("' required></label>");
 				}
 				body.append("<label><input type='checkbox' name='declaration' value='true' required> ")
-						.append(escape(RegistrationService.DECLARATION)).append("</label><button>Accept assignment</button></form>");
+						.append(escape(RegistrationService.DECLARATION)).append("</label><button class='button-affirmative'>Accept assignment</button></form>");
 			}
 			body.append("<form method='post' action='/auth/github/logout'>").append(hidden("csrf", csrf))
 					.append(hidden("lectureId", lectureId)).append(hidden("assignmentId", assignmentId))
-					.append("<button>Disconnect GitHub account</button></form>");
+					.append("<button class='button-cancel'>Disconnect GitHub account</button></form>");
 		}
 		return page(HttpStatus.OK, title, body.toString());
 	}
@@ -318,6 +318,9 @@ public class RegistrationController {
 				.body("<!doctype html><html lang='en'><head><meta charset='utf-8'><meta name='viewport' content='width=device-width,initial-scale=1'>"
 						+ "<title>Assignment registration</title><style>body{font:1.1rem system-ui;max-width:42rem;margin:3rem auto;padding:0 1rem;line-height:1.5}"
 						+ "label{display:block;margin:1rem 0}input:not([type=checkbox]){display:block;width:100%;box-sizing:border-box;padding:.5rem}"
-						+ "button{padding:.6rem 1rem;cursor:pointer}form{margin:1.5rem 0}</style></head><body><h1>" + title + "</h1>" + body + "</body></html>");
+						+ "button{padding:.6rem 1rem;border:2px solid transparent;border-radius:.3rem;font:inherit;font-weight:600;color:#fff;cursor:pointer}"
+						+ ".button-affirmative{background:#166534}.button-affirmative:hover{background:#14532d}"
+						+ ".button-cancel{background:#b91c1c}.button-cancel:hover{background:#991b1b}"
+						+ "button:focus-visible{outline:3px solid #1d4ed8;outline-offset:3px}form{margin:1.5rem 0}</style></head><body><h1>" + title + "</h1>" + body + "</body></html>");
 	}
 }

@@ -315,6 +315,37 @@ class GitHubFeedbackClientTest {
         assertNull(assertThrows(Failure.class, () -> github.repository(REPOSITORY)).retryAt());
     }
 
+    @ParameterizedTest
+    @ValueSource(strings = {
+            "You have exceeded a secondary rate limit. Please wait a few minutes before you try again.",
+            "You have triggered an abuse detection mechanism. Please wait a few minutes before you try again."
+    })
+    void recognizesSecondaryLimitsWithoutRetryHeadersOrExhaustedPrimaryQuota(String message) {
+        Instant before = Instant.now();
+        reply(403, "{\"message\":\"" + message + " private-signed-secret " + TOKEN + "\"}",
+                Map.of("X-RateLimit-Remaining", "4999",
+                        "X-RateLimit-Reset", Long.toString(before.plusSeconds(5).getEpochSecond())));
+
+        Failure failure = assertThrows(Failure.class, () -> github.repository(REPOSITORY));
+
+        assertEquals(403, failure.status());
+        assertTrue(failure.retryAt().isAfter(before.plusSeconds(59)));
+        assertTrue(failure.retryAt().isBefore(Instant.now().plusSeconds(61)));
+        assertSanitized(failure);
+    }
+
+    @Test
+    void ignoresPermissionMessagesAndMalformedOrOversizedErrorJson() {
+        for (String body : List.of("{\"message\":\"Resource not accessible by personal access token\"}",
+                "{\"message\":\"secondary rate limit private-signed-secret",
+                "{\"message\":\"secondary rate limit\",\"padding\":\"" + "x".repeat(64 * 1024) + "\"}")) {
+            reply(403, body, Map.of("X-RateLimit-Remaining", "4999"));
+            Failure failure = assertThrows(Failure.class, () -> github.repository(REPOSITORY));
+            assertNull(failure.retryAt());
+            assertSanitized(failure);
+        }
+    }
+
     @Test
     void sanitizesTransportFailuresAndRejectsRedirectingHttpClient() {
         HttpClient transport = mock(HttpClient.class);

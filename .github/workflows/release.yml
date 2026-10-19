@@ -88,7 +88,12 @@ jobs:
           fi
 
           # A manually created tag must also identify the commit that was tested.
-          if tag_commit=$(gh api "repos/$GH_REPO/commits/$release_tag" --jq .sha 2>/dev/null); then
+          # Only a successful lookup with no exact match establishes tag absence.
+          gh api "repos/$GH_REPO/git/matching-refs/tags/$release_tag" > tag-refs.json
+          tag_count=$(jq -er --arg ref "refs/tags/$release_tag" \
+            'if type == "array" then map(select(.ref == $ref)) | length else error("Invalid tag reference response") end' tag-refs.json)
+          if [[ "$tag_count" != 0 ]]; then
+            tag_commit=$(gh api "repos/$GH_REPO/commits/$release_tag" --jq .sha)
             if [[ "$tag_commit" != "$RELEASE_COMMIT" ]]; then
               echo "Release tag points to another commit; refusing publication." >&2
               exit 1

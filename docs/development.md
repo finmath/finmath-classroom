@@ -60,6 +60,11 @@ publish those solutions incidentally.
   Parse bounded archives without extraction, verify run correlation, and keep missing
   results distinct from a failed test with a numeric score. HTTP operations must not
   hold SQLite write transactions or forward credentials to artifact storage.
+  Repository checks can have status `deferred` after a rate limit. This existing
+  version-1 table stores the resume marker without a schema migration; a later
+  scoped sync prioritizes matching interrupted enrollments. Latest listings show
+  a deferred check without any result as unavailable. Resume is per repository,
+  not per page/run within its history.
 - Latest feedback listings use the newest known run by GitHub creation time and
   run ID, then its highest known attempt, per current enrollment. Preserve missing
   or invalid latest results and enrollments without attempts; never replace them

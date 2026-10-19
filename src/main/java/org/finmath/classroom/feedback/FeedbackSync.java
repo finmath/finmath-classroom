@@ -3,7 +3,13 @@ package org.finmath.classroom.feedback;
 import java.io.IOException;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 
 import org.finmath.classroom.feedback.FeedbackSource.Artifact;
@@ -39,8 +45,7 @@ public final class FeedbackSync {
         Instant deferred = store.deferredUntil();
         if (deferred != null && clock.instant().isBefore(deferred)) return new Report(0, 0, 0, 0, 0, true, deferred);
         Counts counts = new Counts();
-        for (Enrollment enrollment : enrollments.list(lectureId, assignmentId)) {
-            if (enrollment.repositoryId() == null || !Set.of("active", "invitation_pending", "retryable").contains(enrollment.status())) continue;
+        for (Enrollment enrollment : pollingOrder(lectureId, assignmentId)) {
             counts.repositories++;
             int previousErrors = counts.errors;
             int previousUnavailable = counts.unavailable;
@@ -93,7 +98,7 @@ public final class FeedbackSync {
                 store.checked(enrollment, counts.errors > previousErrors || counts.unavailable > previousUnavailable ? "attention" : "ok", null, clock.instant());
             } catch (Failure failure) {
                 counts.errors++;
-                store.checked(enrollment, "unavailable", failureMessage(failure), clock.instant());
+                store.checked(enrollment, failure.retryAt() == null ? "unavailable" : "deferred", failureMessage(failure), clock.instant());
                 if (failure.retryAt() != null) {
                     Instant retry = failure.retryAt().isAfter(clock.instant()) ? failure.retryAt() : clock.instant().plusSeconds(60);
                     store.defer(retry);
@@ -107,6 +112,40 @@ public final class FeedbackSync {
             }
         }
         return counts.report(false, null);
+    }
+
+    private List<Enrollment> pollingOrder(String lectureId, String assignmentId) throws IOException {
+        List<Enrollment> candidates = enrollments.list(lectureId, assignmentId).stream()
+                .filter(enrollment -> enrollment.repositoryId() != null
+                        && Set.of("active", "invitation_pending", "retryable").contains(enrollment.status()))
+                .toList();
+        if (candidates.isEmpty()) return candidates;
+        Map<Long, Map<String, Object>> checks = new HashMap<>();
+        for (Map<String, Object> check : store.checks(lectureId, assignmentId)) {
+            if ("deferred".equals(check.get("status"))) checks.put(((Number) check.get("repositoryId")).longValue(), check);
+        }
+        Map<Long, Instant> deferred = new HashMap<>();
+        int start = 0;
+        Instant oldest = Instant.MAX;
+        for (int index = 0; index < candidates.size(); index++) {
+            Enrollment enrollment = candidates.get(index);
+            Map<String, Object> check = checks.get(enrollment.repositoryId());
+            if (check == null || !Objects.equals(enrollment.lectureId(), check.get("lectureId"))
+                    || !Objects.equals(enrollment.assignmentId(), check.get("assignmentId"))
+                    || !Objects.equals(enrollment.studentId(), check.get("studentId"))) continue;
+            Instant checkedAt = Instant.parse((String) check.get("lastCheckedAt"));
+            deferred.put(enrollment.repositoryId(), checkedAt);
+            if (checkedAt.isBefore(oldest)) {
+                oldest = checkedAt;
+                start = index;
+            }
+        }
+        List<Enrollment> ordered = new ArrayList<>(candidates);
+        // Resume the interrupted repository, then its successors before wrapping to completed work.
+        Collections.rotate(ordered, -start);
+        // Separate filtered invocations can leave several markers; honor the oldest interruption first.
+        ordered.sort(Comparator.comparing(enrollment -> deferred.getOrDefault(enrollment.repositoryId(), Instant.MAX)));
+        return ordered;
     }
 
     private void collect(Enrollment enrollment, Run run, List<Artifact> artifacts, Counts counts) throws IOException {

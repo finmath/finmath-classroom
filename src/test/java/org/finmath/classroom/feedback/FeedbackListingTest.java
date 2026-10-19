@@ -109,6 +109,12 @@ class FeedbackListingTest {
         assertEquals(check.get("lastCheckedAt"), row.get("lastCheckedAt"));
         assertNull(row.get("score"));
 
+        var deferred = check(alice, "deferred", "GitHub feedback request failed (HTTP 429).");
+        row = FeedbackListing.latest(List.of(alice), List.of(), List.of(deferred)).get(0);
+        assertEquals("unavailable", row.get("collectionStatus"));
+        assertEquals(deferred.get("problem"), row.get("problem"));
+        assertNull(row.get("score"));
+
         for (String field : List.of("repositoryId", "lectureId", "assignmentId", "studentId")) {
             var stale = new LinkedHashMap<>(check);
             stale.put(field, field.equals("repositoryId") ? 99L : "unrelated");

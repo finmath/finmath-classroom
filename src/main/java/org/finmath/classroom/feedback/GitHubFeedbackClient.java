@@ -32,6 +32,7 @@ public final class GitHubFeedbackClient implements FeedbackSource {
     private static final URI GITHUB_API = URI.create("https://api.github.com/");
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
     private static final int JSON_LIMIT = 4 * 1024 * 1024;
+    private static final int ERROR_JSON_LIMIT = 64 * 1024;
     private static final int ARCHIVE_LIMIT = 2 * 1024 * 1024;
     private static final int PAGE_SIZE = 100;
     private static final int PAGE_LIMIT = 100;
@@ -222,12 +223,13 @@ public final class GitHubFeedbackClient implements FeedbackSource {
         return status == 301 || status == 302 || status == 303 || status == 307 || status == 308;
     }
 
-    private static Failure httpFailure(HttpResponse<?> response) {
+    private static Failure httpFailure(HttpResponse<byte[]> response) {
         int status = response.statusCode();
         Instant retryAt = null;
+        boolean exhausted = response.headers().firstValue("X-RateLimit-Remaining").orElse("").equals("0");
         boolean limited = status == 429 || (status == 403 &&
                 (response.headers().firstValue("Retry-After").isPresent()
-                || response.headers().firstValue("X-RateLimit-Remaining").orElse("").equals("0")));
+                || exhausted || secondaryRateLimit(response.body())));
         if (limited) {
             Instant now = Instant.now();
             String retryAfter = response.headers().firstValue("Retry-After").orElse("");
@@ -239,7 +241,7 @@ public final class GitHubFeedbackClient implements FeedbackSource {
                     retryAt = ZonedDateTime.parse(retryAfter, DateTimeFormatter.RFC_1123_DATE_TIME).toInstant();
                 } catch (RuntimeException ignored) { /* No valid Retry-After value. */ }
             }
-            if (retryAt == null) {
+            if (retryAt == null && exhausted) {
                 try {
                     retryAt = Instant.ofEpochSecond(Long.parseLong(response.headers().firstValue("X-RateLimit-Reset").orElse("")));
                 } catch (RuntimeException ignored) { /* Fall back for a secondary rate limit. */ }
@@ -247,6 +249,19 @@ public final class GitHubFeedbackClient implements FeedbackSource {
             if (retryAt == null || !retryAt.isAfter(now)) retryAt = now.plusSeconds(60);
         }
         return new Failure("GitHub feedback request returned HTTP " + status, status, retryAt);
+    }
+
+    private static boolean secondaryRateLimit(byte[] body) {
+        if (body == null || body.length > ERROR_JSON_LIMIT) return false;
+        try {
+            JsonNode value = JsonFiles.MAPPER.readTree(body);
+            if (value == null || !value.path("message").isString()) return false;
+            String message = value.path("message").asString().toLowerCase(Locale.ROOT);
+            return message.contains("secondary rate limit") || message.contains("abuse detection");
+        } catch (RuntimeException exception) {
+            // Error bodies are advisory; never retain parser diagnostics or private response data.
+            return false;
+        }
     }
 
     private static JsonNode json(HttpResponse<byte[]> response) throws Failure {
