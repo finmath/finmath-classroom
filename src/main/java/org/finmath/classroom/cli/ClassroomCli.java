@@ -5,6 +5,7 @@ import java.io.PrintStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Clock;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.HashMap;
@@ -13,6 +14,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
+import org.finmath.classroom.feedback.FeedbackStore;
+import org.finmath.classroom.feedback.FeedbackSync;
+import org.finmath.classroom.feedback.GitHubFeedbackClient;
 import org.finmath.classroom.grading.FeedbackScorer;
 import org.finmath.classroom.grading.FeedbackArtifact;
 import org.finmath.classroom.grading.GradeCollector;
@@ -27,7 +31,7 @@ import org.finmath.classroom.registration.GitHubClient;
 import org.finmath.classroom.registration.RegistrationService;
 import org.finmath.classroom.workspace.WorkspaceGenerator;
 
-/** Thin command-line adapter. The tools below do not need Spring or server credentials. */
+/** Thin command-line adapter; only explicit GitHub operations need a server-side credential. */
 public final class ClassroomCli {
     private ClassroomCli() { }
 
@@ -100,8 +104,9 @@ public final class ClassroomCli {
 
     private static int feedback(String[] args, PrintStream out) throws IOException {
         if (args.length == 0) {
-            throw new IllegalArgumentException("Choose a feedback command: select or report");
+            throw new IllegalArgumentException("Choose a feedback command: select, report, sync, list or show");
         }
+        if (Set.of("sync", "list", "show").contains(args[0])) return feedbackCollection(args, out);
         if (args[0].equals("select")) {
             var options = options(args, Set.of("--rubric"), Set.of());
             out.println(FeedbackScorer.testSelection(required(options, "--rubric")));
@@ -138,6 +143,66 @@ public final class ClassroomCli {
         }
         out.println("Feedback only: " + result.path("status").asString() + "; output " + output);
         return FeedbackArtifact.exitCode(result);
+    }
+
+    private static int feedbackCollection(String[] args, PrintStream out) throws IOException {
+        Set<String> accepted = switch (args[0]) {
+            case "sync" -> Set.of("--data", "--lecture", "--assignment", "--workflow");
+            case "list" -> Set.of("--data", "--lecture", "--assignment");
+            default -> Set.of("--data", "--repository-id", "--run-id", "--attempt");
+        };
+        var options = options(args, accepted, Set.of());
+        Path data = required(options, "--data");
+        ClassroomConfig config = ClassroomConfig.load(data);
+        String lecture = options.get("--lecture");
+        String assignment = options.get("--assignment");
+        if (lecture != null) config.lecture(lecture);
+        if (assignment != null) {
+            if (lecture == null) throw new IllegalArgumentException("--assignment requires --lecture");
+            config.assignment(lecture, assignment);
+        }
+        EnrollmentStore enrollments = EnrollmentStore.readOnly(data.resolve("classroom.db"));
+        enrollments.verifyConfiguration(config);
+        if (args[0].equals("sync")) {
+            String workflow = options.getOrDefault("--workflow", System.getenv().getOrDefault("CLASSROOM_FEEDBACK_WORKFLOW", "classroom.yml"));
+            FeedbackSync.workflowFile(workflow);
+            String token = System.getenv("CLASSROOM_FEEDBACK_TOKEN");
+            if (token == null || token.isBlank()) token = System.getenv("CLASSROOM_GITHUB_TOKEN");
+            if (token == null || token.isBlank()) throw new IllegalArgumentException("CLASSROOM_FEEDBACK_TOKEN or CLASSROOM_GITHUB_TOKEN with Actions read access is required.");
+            var github = new GitHubFeedbackClient(token);
+            var report = new FeedbackSync(config, enrollments, new FeedbackStore(data, true), github, Clock.systemUTC())
+                    .sync(lecture, assignment, workflow);
+            out.println(JsonFiles.MAPPER.writeValueAsString(report));
+            return report.errors() > 0 || report.deferred() ? 2 : 0;
+        }
+        if (args[0].equals("list") && !Files.exists(data.resolve("feedback.db"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+            out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false, "repositories", List.of(), "results", List.of())));
+            return 0;
+        }
+        FeedbackStore store = new FeedbackStore(data, false);
+        if (args[0].equals("list")) {
+            out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false,
+                    "repositories", store.checks(lecture, assignment), "results", store.list(lecture, assignment))));
+        } else {
+            long repository = positiveOption(options, "--repository-id");
+            long run = positiveOption(options, "--run-id");
+            long attempt = positiveOption(options, "--attempt");
+            if (attempt > 1000) throw new IllegalArgumentException("--attempt must not exceed 1000");
+            var result = store.result(repository, run, (int) attempt);
+            if (result == null) throw new IllegalArgumentException("No received feedback exists for that repository, run and attempt.");
+            out.println(JsonFiles.MAPPER.writeValueAsString(result));
+        }
+        return 0;
+    }
+
+    private static long positiveOption(Map<String, String> options, String key) {
+        String text = options.get(key);
+        if (text == null || !text.matches("[1-9][0-9]{0,18}")) throw new IllegalArgumentException(key + " must be a positive integer");
+        try {
+            return Long.parseLong(text);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(key + " is too large");
+        }
     }
 
     private static int workspace(Map<String, String> options, PrintStream out) throws IOException {
@@ -327,6 +392,9 @@ public final class ClassroomCli {
                   score --rubric FILE --reports DIR --output FILE [--summary FILE]
                   feedback select --rubric FILE
                   feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER --output FILE [--summary FILE]
+                  feedback sync --data DIR [--lecture ID] [--assignment ID] [--workflow classroom.yml]
+                  feedback list --data DIR [--lecture ID] [--assignment ID]
+                  feedback show --data DIR --repository-id NUMBER --run-id NUMBER --attempt NUMBER
                   collect --manifest FILE --results DIR --output FILE.csv
                   workspace (--check | --write) [--modules FILE] [--repositories-root DIR] [--output DIR]
                   registration check --data DIR
@@ -338,7 +406,8 @@ public final class ClassroomCli {
                   registration reconcile --data DIR --lecture ID --assignment ID --student ID --repository-id NUMBER
                   serve [Spring Boot options]
 
-                Scoring is feedback only. Collection requires trusted final-runner results.
+                Feedback sync downloads student-workflow artifacts into private DIR/feedback.db; list/show are read-only.
+                Scoring is feedback only. The collect command requires trusted final-runner results.
                 Registration configuration lives in DIR/lectures; its database is DIR/classroom.db.
                 Check and listing commands are read-only. Import pins supplied GitHub usernames using read-only API calls.
                 Delete removes one acceptance only. Stop the service and back up first; GitHub repositories are retained.

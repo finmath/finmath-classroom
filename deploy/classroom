@@ -1,0 +1,74 @@
+#!/bin/bash
+# Ubuntu 24.04 administrator helper. Install root-owned in /usr/local/sbin/classroom.
+set -euo pipefail
+
+classroom_help() {
+    cat <<'USAGE'
+Usage: sudo classroom registration COMMAND [OPTIONS]
+       sudo classroom feedback COMMAND [OPTIONS]
+
+Registration: check, import, assignments, students, list, delete, reconcile
+Feedback:     sync, list, show
+
+Examples:
+  sudo classroom registration list --format table
+  sudo classroom feedback sync
+  sudo classroom feedback list --lecture numerical-methods
+
+Uses /var/lib/finmath-classroom and the installed Java 21 application.
+The Java command runs as finmath-classroom, never as root.
+Stop the web service and feedback timer/collector before import, delete or reconcile.
+Back up first; service management and deployment remain explicit operations.
+USAGE
+}
+
+# Build an argument array so shell metacharacters and spaces remain literal.
+# Kept separate from execution for offline checks without sudo or systemd.
+classroom_build_command() {
+    classroom_command=()
+    if (( $# < 2 )); then
+        printf '%s\n' 'Choose a registration or feedback command; see classroom --help.' >&2
+        return 2
+    fi
+    local needs_credentials=false option
+    case "$1 $2" in
+        'registration import'|'registration reconcile'|'feedback sync') needs_credentials=true ;;
+        'registration check'|'registration assignments'|'registration students'|'registration list'|\
+        'registration delete'|'feedback list'|'feedback show') ;;
+        *) printf '%s\n' 'Unsupported server command; see classroom --help.' >&2; return 2 ;;
+    esac
+    for option in "$@"; do
+        case "$option" in
+            --data|--data=*)
+                printf '%s\n' 'The server data directory is fixed; omit --data.' >&2
+                return 2
+                ;;
+        esac
+    done
+    classroom_command=(/usr/bin/systemd-run --wait --pipe --collect --quiet
+        --service-type=exec --expand-environment=no
+        --property=User=finmath-classroom --property=Group=finmath-classroom
+        --property=WorkingDirectory=/var/lib/finmath-classroom --property=UMask=0077
+        --property=NoNewPrivileges=true --property=PrivateTmp=true
+        --property=ProtectHome=true --property=ProtectSystem=strict
+        --property=ReadWritePaths=/var/lib/finmath-classroom)
+    if [[ "$needs_credentials" == true ]]; then
+        classroom_command+=(--property=EnvironmentFile=/etc/finmath-classroom/classroom.env)
+    fi
+    classroom_command+=(-- /usr/lib/jvm/java-21-openjdk-amd64/bin/java
+        -jar /opt/finmath-classroom/finmath-classroom.jar
+        "$@" --data /var/lib/finmath-classroom)
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    if (( $# == 0 )) || [[ "$1" == --help || "$1" == -h ]]; then
+        classroom_help
+        exit 0
+    fi
+    classroom_build_command "$@"
+    if (( EUID != 0 )); then
+        printf '%s\n' 'Run this server command with sudo: sudo classroom ...' >&2
+        exit 1
+    fi
+    exec "${classroom_command[@]}"
+fi

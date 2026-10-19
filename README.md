@@ -6,8 +6,9 @@ a private repository created from an instructor's template. Instructors manage
 courses, assignment settings and registrations through files and command-line tools.
 
 The project provides the registration and repository-provisioning part of a
-GitHub Classroom alternative. It is under development: automated submission
-collection and authoritative final grading are still pending.
+GitHub Classroom alternative, with shared test feedback and automatic downloading
+of feedback artifacts. Submission capture and authoritative final grading are
+still pending.
 
 **Start here:** [Getting started](GETTING_STARTED.md) walks through an offline
 trial, a local browser preview, and a first live GitHub assignment.
@@ -45,8 +46,8 @@ Self-declared names do not prove university identity or claim a roster entry by 
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
-| Shared Maven/JUnit feedback action and versioned artifacts | Implemented locally; publication and GitHub pilot pending |
-| Automatic feedback artifact collection | Pending |
+| Shared Maven/JUnit feedback action and versioned artifacts | Implemented; action execution confirmed in an instructor pilot |
+| Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer; live collection pilot pending |
 | Submission fetching, push/deadline tracking and source snapshots | Pending in Java |
 | Isolated final grader and Moodle grade return | Pending |
 
@@ -81,7 +82,8 @@ One Spring Boot application serves the registration pages and provides CLI tools
 It uses Java 17, Spring MVC, SQLite/JDBC and Jackson 3. The registration logic is
 independent of Spring, and the interface uses server-rendered HTML.
 
-A private data directory holds course configuration and the database. Configuration
+A private data directory holds course configuration, the registration database and
+the separate feedback database. Configuration
 uses the term `lecture` for a course and groups its assignments in subdirectories.
 Secrets, rosters and runtime data stay outside version control. Student repositories
 keep their own Git histories and builds.
@@ -93,7 +95,7 @@ keep their own Git histories and builds.
 - [Other tools](docs/tools.md): local scoring, CSV collection and optional
   Maven/IntelliJ workspace generation.
 - [Autograding migration](docs/autograding.md): replacement GitHub action, rubric
-  conversion and standardized uploaded results.
+  conversion, standardized uploaded results and automatic feedback collection.
 - [Development notes and history](docs/development.md): architecture, conventions
   and recorded verification.
 - [Roadmap](docs/roadmap.md): launch preparation, shared feedback workflows,

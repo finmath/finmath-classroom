@@ -6,10 +6,10 @@ Surefire XML reports, writes a GitHub job summary and uploads a versioned result
 The Java scorer only reads files; Maven executes assignment code on the runner.
 Use disposable GitHub-hosted runners with no classroom credentials.
 
-The shared action lives in `finmath/finmath-classroom`. Publish its maintained
-`v1` tag before assignment workflows reference it; publication and a live GitHub
-pilot are still pending. Automatic server collection and authoritative final
-grading remain pending.
+The shared action lives in `finmath/finmath-classroom`. It has now run on GitHub
+and generated `result.json`. Server collection is implemented with administrative
+commands and an optional timer; its end-to-end GitHub pilot remains pending.
+Authoritative final grading remains future work.
 
 ## 1. Migrate `.github/classroom/autograding.json`
 
@@ -126,8 +126,8 @@ without a pull request. Keep release tags such as `v1.0.0` fixed; use one of tho
 or a full commit SHA when you want to hold the grader version. Breaking changes
 belong in `v2`. This follows [GitHub's action release guidance](https://docs.github.com/en/actions/how-tos/create-and-publish-actions/manage-custom-actions#using-release-management-for-actions).
 
-The initial local tags are `v1.0.0` and `v1`. After reviewing the release, publish
-the service and these tags first, then the template workflow commits:
+For initial publication, the tags are `v1.0.0` and `v1`. The publication sequence
+is the service and its reviewed tags first, then the template workflow commits:
 
 ```sh
 git push origin main
@@ -177,8 +177,9 @@ For a pull request, GitHub's default checkout tests the synthetic merge commit;
 the result records that exact `GITHUB_SHA`, `event: pull_request` and a ref such as
 `refs/pull/42/merge`. The action still requires checkout HEAD to match `GITHUB_SHA`.
 PR results are feedback on the merge candidate, not a submission on the assignment
-branch. A future submission collector must select push results on the configured
-branch separately; it must not substitute PR or manual runs. The privileged
+branch. Server feedback collection selects push runs on the configured assignment
+branch; it does not substitute PR or manual runs. Capturing deadline submissions
+remains future work. The privileged
 `pull_request_target` event remains unsupported.
 See [GitHub's pull-request event semantics](https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#pull_request).
 Call the action once per workflow run, since artifact names identify a run and
@@ -262,9 +263,10 @@ Student-controlled metadata/reports are claims, not authentication or final grad
 The existing `collect` command accepts a different, trusted final-result format.
 
 The action attempts upload before returning the grading failure status, so failed
-tests still produce feedback. A future server collector must recover missed
-notifications by polling while artifacts remain available; GitHub does not
-automatically redeliver failed webhooks. [Delivery behavior](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries)
+tests still produce feedback. Server synchronization polls for recoverable
+artifacts, independently of workflow success or a classroom server outage.
+Choose retention long enough for the expected outage and recovery window; an
+artifact deleted or expired before collection cannot be recovered by polling.
 
 ## 4. Local checks and rollout
 
@@ -292,7 +294,99 @@ suite rubrics. Existing method rubrics and their feedback retain their format.
 
 Run `mvn -B -ntp verify`, then `bash scripts/test-autograding.sh` for the action's
 offline shell integration checks with a fake Maven process and the real JAR. These
-checks do not run student code or contact GitHub. Before rolling out, pilot on
-GitHub with passing and failing tests, a timeout, and a rerun; inspect the summary
-and downloaded artifact, its attempt number and the exact commit. Verify weights
+checks do not run student code or contact GitHub. The action has executed on
+GitHub and generated a result; complete the collection pilot with passing and
+failing tests, a timeout and a rerun. Inspect the summary, uploaded artifact and
+server's `feedback list`/`show` output, including attempt number, exact commit and
+null scores for unavailable results. Stop collection temporarily, then verify
+that synchronization recovers retained artifacts after restart. Verify weights
 against the old configuration before changing other templates.
+
+## 5. Automatic server collection
+
+The existing shared workflow already uploads the required artifact. Enabling
+collection requires no workflow change or classroom credential in student
+repositories. The server uses GitHub's read-only APIs to download feedback; it
+does not check out repositories, execute student code or run Maven.
+
+Use the imported registration data directory and a server credential with
+**Actions: read** access to the enrolled private repositories. Set
+`CLASSROOM_FEEDBACK_TOKEN` for a dedicated credential; when unset or blank, the
+collector uses `CLASSROOM_GITHUB_TOKEN`, which must have that permission too.
+Keep credentials in the private service environment file described in the
+[deployment guide](deployment.md). GitHub documents access requirements in its
+[artifact API](https://docs.github.com/en/rest/actions/artifacts).
+
+If collection reports HTTP 403 while registration works, check **Actions →
+Read-only** on the effective server token first. The original provisioning grants
+do not include it. For a fine-grained PAT, edit the existing token in GitHub,
+retain its provisioning permissions, ensure it covers the teaching organization
+and generated student repositories, and obtain organization approval if prompted.
+When the token value stays the same, rerun `feedback sync`; no service restart or
+JAR update is needed. If a dedicated `CLASSROOM_FEEDBACK_TOKEN` is configured,
+changing the fallback token's permissions will not change collector access.
+HTTP 403 can also reflect organization access policies; the status alone does not
+identify the exact denied operation.
+
+```sh
+java -jar target/finmath-classroom.jar feedback sync \
+  --data /var/lib/finmath-classroom \
+  --lecture numerical-methods --assignment quadratic-equation
+
+java -jar target/finmath-classroom.jar feedback list \
+  --data /var/lib/finmath-classroom \
+  --lecture numerical-methods --assignment quadratic-equation
+
+java -jar target/finmath-classroom.jar feedback show \
+  --data /var/lib/finmath-classroom \
+  --repository-id 123456 --run-id 987654 --attempt 1
+```
+
+Lecture and assignment IDs come from local configuration; repository, run and
+attempt IDs for `show` come from `list`. Omit the lecture and assignment filters
+to synchronize or list all enrolled repositories; `--assignment` requires
+`--lecture`. The selected workflow defaults to `classroom.yml`. Override it with
+`CLASSROOM_FEEDBACK_WORKFLOW` or, for one synchronization, `--workflow feedback.yml`.
+Use scoped synchronizations when assignments have different workflow filenames.
+`list` and `show` read local data without credentials or network access.
+
+Synchronization records completed push attempts on each assignment's configured
+branch, including failed workflows. It revisits older runs to discover reruns,
+checks repository/run/attempt/commit and workflow identity against GitHub metadata,
+and accepts only the expected `result.json` from a bounded ZIP. The archive limit
+is 2 MiB and the uncompressed JSON limit is 1 MiB. The server verifies a supplied
+artifact SHA-256 digest and validates the result's fields, scores and statuses.
+
+The first synchronization creates private `DATA/feedback.db` beside `classroom.db`.
+It stores the validated JSON, enrollment association, commit, run and attempt,
+workflow identity, artifact ID/digest, archive checksum and receipt time. Back up
+both databases and the configuration. Repeated collection is harmless; received
+attempts remain available locally after GitHub removes their artifacts, and reruns
+remain separate historical records. A stored commit is a history label, not a
+claim that it is still the branch head.
+
+`list` reports collection states including `pending`, `missing`, `expired`,
+`unavailable` and `invalid`. Missing or invalid feedback has a null score; valid
+incomplete, error and timeout results also retain their top-level null score.
+The sync report returns received, already-stored, unavailable and error counts.
+Exit 2 indicates errors or a deferred rate limit; exit 0 means the scan completed,
+so inspect unavailable counts before assuming every result was collected.
+Transient failures and missing artifacts are retried by subsequent syncs; a saved
+rate-limit delay survives a service restart.
+
+Each run/artifact listing is bounded to 100 pages of 100 records, and runs to
+1,000 attempts. Exceeding a listing limit reports an error rather than silently
+presenting a partial scan as complete. Synchronization rescans run history so
+reruns of older commits are discovered; API usage grows with that history.
+
+The supplied [systemd timer](../deploy/finmath-classroom-feedback.timer) runs the
+[collection service](../deploy/finmath-classroom-feedback.service) five minutes
+after its previous invocation finishes, starting about two minutes after boot
+with up to thirty seconds of jitter. Enable it using the deployment guide to make
+downloads automatic. Manual sync remains available for immediate recovery.
+Webhooks and direct workflow result POSTs are future work.
+
+Collected values remain non-authoritative student feedback. API correlation and
+artifact checksums identify the downloaded result; they cannot prove that a
+student used approved tests, reports, rubric or workflow. Final marks still require
+instructor-controlled grading and the separate trusted-result `collect` command.

@@ -9,14 +9,18 @@ commands below.
 
 These instructions use `classroom.example.org` and port `8081`. Replace the host
 with your own subdomain, and check that the port is free. Server commands run as
-root. The service itself runs as the separate `finmath-classroom` user.
+root (or in a temporary `sudo -i` shell from your personal administrator account).
+The service itself runs as the separate `finmath-classroom` user. For everyday
+administration, use the [CLI helper](#short-server-cli) and
+[personal SSH account](#personal-ssh-account) described below.
 
 | Location | Contents | Owner |
 | --- | --- | --- |
 | `/opt/finmath-classroom/finmath-classroom.jar` | Executable application | root |
 | `/etc/finmath-classroom/classroom.env` | Environment and GitHub credentials, mode `0600` | root |
-| `/var/lib/finmath-classroom/` | `lectures/` and `classroom.db`, directory mode `0700` | finmath-classroom |
+| `/var/lib/finmath-classroom/` | `lectures/`, `classroom.db` and optional `feedback.db`, directory mode `0700` | finmath-classroom |
 | `/etc/systemd/system/finmath-classroom.service` | Service definition | root |
+| `/etc/systemd/system/finmath-classroom-feedback.{service,timer}` | Optional feedback collector and schedule | root |
 
 ## 1. Prepare the files
 
@@ -247,7 +251,194 @@ Use the plain assignment URL in Moodle initially. Keys can be entered by the
 student or [prefilled in a course-only link](registration.md#prefilling-registration-keys).
 LTI identity can be configured separately later.
 
+## 6. Enable automatic feedback collection
+
+Deploy the JAR containing `feedback sync` before installing the timer. Collection
+uses the same private configuration and enrollments, plus a separate `feedback.db`;
+no registration import or student workflow change is required for this feature.
+Results remain untrusted student feedback, separate from final grades.
+
+The credential needs **Actions: read** access to the enrolled private student
+repositories and repository metadata. Set `CLASSROOM_FEEDBACK_TOKEN` in the private
+environment file for a dedicated read-only credential, or grant that additional
+read permission to the existing `CLASSROOM_GITHUB_TOKEN` used as fallback. The
+student OAuth token is not used. Token renewal is still the operator's responsibility.
+See [GitHub artifact permissions](https://docs.github.com/en/rest/actions/artifacts).
+
+The default workflow filename is `classroom.yml`. If your templates use another
+shared filename, set `CLASSROOM_FEEDBACK_WORKFLOW` in the environment file. The
+collector accepts push runs on the configured assignment branch; it does not collect
+pull-request feedback. It can retrieve existing completed runs while their artifacts
+are still available.
+
+Copy the two unit files from the development machine:
+
+```sh
+scp deploy/finmath-classroom-feedback.service deploy/finmath-classroom-feedback.timer \
+  root@YOUR_SERVER:/root/finmath-classroom-upload/
+```
+
+On the server, install them and run one collection before enabling the schedule:
+
+```sh
+install -m 644 /root/finmath-classroom-upload/finmath-classroom-feedback.service /etc/systemd/system/
+install -m 644 /root/finmath-classroom-upload/finmath-classroom-feedback.timer /etc/systemd/system/
+systemctl daemon-reload
+systemd-analyze verify /etc/systemd/system/finmath-classroom-feedback.service \
+  /etc/systemd/system/finmath-classroom-feedback.timer
+systemctl start finmath-classroom-feedback.service
+journalctl -u finmath-classroom-feedback.service -n 30 --no-pager
+```
+
+The oneshot unit normally becomes `inactive (dead)` after a successful collection.
+Check its exit status and the saved results; a stopped oneshot is not a stopped web
+application. List results without loading credentials:
+
+```sh
+runuser -u finmath-classroom -- /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
+  -jar /opt/finmath-classroom/finmath-classroom.jar \
+  feedback list --data /var/lib/finmath-classroom
+```
+
+For the first pilot, confirm a `received` row with the expected repository, commit,
+run attempt and test score. Failed tests are valid feedback and should be collected.
+`missing`, `expired`, `invalid` and `unavailable` remain visible without a score;
+check the workflow's artifact upload and the credential's repository access.
+`feedback show` prints a selected stored result, as described in the
+[collection reference](autograding.md#5-automatic-server-collection).
+
+Once the first collection is verified:
+
+```sh
+systemctl enable --now finmath-classroom-feedback.timer
+systemctl list-timers finmath-classroom-feedback.timer --no-pager
+```
+
+The timer runs about five minutes after the previous collection finishes, with up
+to 30 seconds of jitter. It starts after boot and retries following outages; saved
+results are not downloaded again. API rate-limit delays persist across runs. A
+30-minute service timeout bounds one scan; partial progress is retained. Monitor
+the journal and collection checks for permission, pagination-limit and retention
+problems. This is polling, not a GitHub webhook endpoint.
+
 ## Administration, updates and backups
+
+### Short server CLI
+
+The optional [classroom helper](../deploy/classroom) replaces the Java executable,
+JAR and data arguments with a short command. It targets Ubuntu 24.04 and the paths
+in this guide; it does not require a new JAR when installed separately.
+
+After setting up a personal administrator account (here `fries`), copy the helper
+from the laptop:
+
+```sh
+scp deploy/classroom fries@server.example.org:classroom-upload
+```
+
+On the server, as that administrator:
+
+```sh
+sudo install -o root -g root -m 755 ~/classroom-upload /usr/local/sbin/classroom
+sudo classroom registration check
+sudo classroom registration list --format table
+sudo classroom feedback sync
+sudo classroom feedback list --lecture numerical-methods
+```
+
+`classroom --help` lists the supported commands. Additional selectors work as in
+the Java CLI; omit `--data`, which is fixed to `/var/lib/finmath-classroom`.
+Feedback commands require the JAR version that implements them.
+
+The helper starts a short-lived systemd service as `finmath-classroom`, loads the
+root-only environment file only for `registration import`, `registration reconcile`
+and `feedback sync`, and returns the application's exit code. Other commands run
+without that credential file. It does not execute the file as shell code or run
+Java as root. Literal command arguments are preserved with systemd's
+`--expand-environment=no`, available in systemd 254 and newer.
+See [systemd-run](https://www.freedesktop.org/software/systemd/man/latest/systemd-run.html).
+
+Stop the web service, feedback timer and collector before `registration import`,
+`registration delete` or `registration reconcile`, and back up before changes.
+The helper does not manage services automatically. These commands remain available
+directly with Java if the helper is not installed.
+
+### Personal SSH account
+
+Use a personal account with `sudo` for administration, keeping the restricted
+`finmath-classroom` account solely for the application. The examples below use
+`fries`; choose a different name if that account is already used for another
+purpose. Keep the current root SSH session open until a second session has
+successfully tested the new login and `sudo`. Keep access to the provider's server
+console available as well.
+
+In the existing root session, change the root password interactively:
+
+```sh
+passwd root
+```
+
+Save the new password in your password manager. Do not put it in a command,
+project file or chat. The command changes the Unix account password.
+See [passwd](https://manpages.ubuntu.com/manpages/noble/man1/passwd.1.html).
+
+For a new, unused account name, create the administrator and grant sudo access:
+
+```sh
+adduser fries
+usermod -aG sudo fries
+```
+
+Choose a separate password for this account; it is also used by `sudo`. On the
+laptop, either use an existing SSH key or create a dedicated, passphrase-protected
+key at an unused filename:
+
+```sh
+ssh-keygen -t ed25519 -a 64 -f ~/.ssh/id_ed25519_strato -C 'fries-strato'
+ssh-copy-id -i ~/.ssh/id_ed25519_strato.pub fries@server.example.org
+ssh -i ~/.ssh/id_ed25519_strato -o IdentitiesOnly=yes \
+  -o PreferredAuthentications=publickey -o PasswordAuthentication=no \
+  fries@server.example.org
+```
+
+Do not overwrite an existing key. Only the `.pub` file is installed on the server;
+the private key stays on the laptop. In the new SSH session, verify elevation:
+
+```sh
+sudo -v
+sudo whoami
+```
+
+The last command must print `root`. Once both key authentication and sudo are
+confirmed, use `sudoedit /etc/ssh/sshd_config.d/00-personal-admin.conf` to add:
+
+```text
+PermitRootLogin no
+```
+
+Then validate syntax and the effective setting before reloading:
+
+```sh
+sudo /usr/sbin/sshd -t
+sudo /usr/sbin/sshd -T | grep '^permitrootlogin '
+```
+
+Expect `permitrootlogin no`. If a different value appears, inspect the main file
+and earlier snippets; OpenSSH generally uses the first obtained value. Existing
+`Match` blocks can override settings for particular connections; inspect those
+too, using `sshd -T -C` for the relevant user/address. Once the configuration checks
+pass, reload with `sudo systemctl reload ssh.service` and test another personal
+SSH login before closing either existing session. This changes direct root SSH
+access; it does not remove the root account or sudo access.
+See [Ubuntu OpenSSH configuration](https://ubuntu.com/server/docs/how-to/security/openssh-server/)
+and [sshd_config](https://manpages.ubuntu.com/manpages/noble/man5/sshd_config.5.html).
+
+After disabling root SSH, replace the bootstrap guide's `scp root@...` commands
+with transfers to your personal account. Upload privately into your home directory,
+then install files with `sudo`; `/root/finmath-classroom-upload` is not directly
+accessible to the personal account.
+
+### Direct CLI and backups
 
 List registrations on the server without loading credentials:
 
@@ -258,17 +449,20 @@ runuser -u finmath-classroom -- /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
 ```
 
 Use the [delete/recovery reference](registration.md#let-a-student-register-again)
-for deliberate re-registration. Stop the service before administrative deletion
-or configuration import. Restart after editing configuration or credentials;
+for deliberate re-registration. Stop the web service and, if installed, the
+feedback timer and collector before administrative deletion or configuration import.
+Restart after editing configuration or credentials;
 pending sign-ins will need to start again.
 
-Back up `/var/lib/finmath-classroom` while the service is stopped, plus the private
-environment, service definition, deployed JAR and Plesk proxy settings. Keep an
+Back up `/var/lib/finmath-classroom` while both services and the feedback timer are
+stopped, plus the private environment, service/timer definitions, deployed JAR and
+Plesk proxy settings. Keep an
 off-server copy and test restoration into a separate private directory. Plesk
 website backups may not include these application paths automatically.
 
-For an application update, build and verify locally, stop the service, make the
-backup, replace only the JAR, then start and repeat the health/ready checks. Retain
+For an application update, build and verify locally, stop both services and the
+timer, make the backup, replace only the JAR, then start the web service and timer
+and repeat the health/ready and collection checks. Retain
 the previous JAR for rollback; a version with a database migration also requires
 a compatible database backup. Do not overwrite the database with an empty pilot.
 

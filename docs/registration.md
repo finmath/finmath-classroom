@@ -153,6 +153,13 @@ Fine-grained tokens → Generate new token**.
 | Repository | Metadata | Read-only |
 | Organization | Members | Read-only |
 
+If this same token is also used for automatic feedback collection, additionally
+grant **Repository permissions → Actions → Read-only**. Without it, provisioning
+can work while `feedback sync` receives HTTP 403. A dedicated nonblank
+`CLASSROOM_FEEDBACK_TOKEN` takes precedence over `CLASSROOM_GITHUB_TOKEN` for
+collection; update the permissions of the token actually used. See the
+[collection setup](autograding.md#5-automatic-server-collection).
+
 These permissions cover
 [template generation](https://docs.github.com/en/rest/repos/repos#create-a-repository-using-a-template),
 [student invitations](https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator)
@@ -187,7 +194,7 @@ for other states.
 
 Enable the template, match its default branch to `branch`, and review its committed
 contents for solutions. Acceptance creates an independent private repository named
-`<repositoryPrefix>-<githubUsername>-<numericGitHubId>`, grants the configured staff team `maintain`,
+`<prefix up to 78 characters>-<8 hex characters>-<username up to 12 characters>`, grants the configured staff team `maintain`,
 and invites the student with `write` access. Students remain outside collaborators.
 The service does not change organization membership or base permissions; configure
 the organization's base permissions appropriately before a pilot.
@@ -203,10 +210,24 @@ frozen in SQLite too. Use a reviewed migration that preserves registrations;
 inspect any existing or uncertain repositories before changing their expected
 branch. After correction, the student can use **Retry repository setup**.
 
-The username is lowercase and reflects the account at first acceptance. Recorded
-repository names remain unchanged on retries or username changes, including names
-created by older versions. New names must fit within 100 characters; use a prefix
-of at most 40 characters to leave room for any supported username and numeric ID.
+Only the generated name truncates the configured prefix to its first 78 characters;
+the configuration and frozen assignment definition stay intact. The final segment
+is the first 12 characters of the lowercase GitHub username at first acceptance.
+The maximum name length is exactly `78 + 1 + 8 + 1 + 12 = 100`, within
+[GitHub's limit](https://docs.github.com/en/repositories/creating-and-managing-repositories/creating-a-repository-from-a-template).
+
+The eight-character lowercase hexadecimal value is a random registration-specific
+identifier. It is allocated and saved with the repository name before contacting
+GitHub; the full numeric GitHub account and repository IDs remain the identity
+checks. Locally reserved names are compared case-insensitively, with another random
+value tried on collision. The short value alone is not a globally unique account ID.
+An unknown repository collision at GitHub or an ambiguous creation response still
+requires instructor review; the service never silently adopts or renames it.
+
+Recorded repository names remain unchanged on retries, server restarts or username
+changes, including older names and reservations where creation has not yet finished.
+Deploying this naming change requires the updated JAR, with no database migration
+or edits to existing assignment prefixes.
 
 Distribute `https://assignments.example.edu/accept/numerical-methods/example-exercise`
 for standalone registration. The student connects GitHub, supplies their name and
@@ -333,8 +354,8 @@ java -jar target/finmath-classroom.jar registration list \
 | `needs_attention` or persistent `creating` | Inspect the expected repository and numeric identity before reconciliation; creation may already have succeeded. |
 
 Preserve the failed registration while investigating. A repository with the
-expected name alone is insufficient evidence to adopt it, and deleting the local
-record while leaving that repository can cause a name collision on acceptance.
+expected name alone is insufficient evidence to adopt it. Deleting the local
+record loses its recovery reference and leaves any GitHub repository in place.
 
 ### Let a student register again
 
@@ -345,7 +366,9 @@ the retry controls described below instead.
    --lecture numerical-methods --assignment example-exercise --format table`
    and copy the intended **student ID**.
 2. Stop the service and back up its private data directory.
-3. Manually delete the student's GitHub repository after retaining any work you need.
+3. Decide whether to retain the old GitHub repository and its work. Any deletion
+   or access change is a separate manual operation; the new acceptance will receive
+   a new random name identifier.
 4. Delete that assignment's local acceptance:
 
    ```sh
@@ -363,7 +386,8 @@ and does not delete a GitHub repository, revoke access or change the configurati
 An unknown student/enrollment or an operation in progress is rejected.
 
 The next acceptance checks the current keys and deadline, records a new declaration,
-and creates a repository using the current naming rule. The new name must be free;
+and creates a repository using the current naming rule and a freshly allocated
+identifier. The new name must be free;
 an existing repository is never adopted automatically. Deletion does not extend
 the assignment deadline or permit changing settings frozen at import.
 

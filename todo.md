@@ -1,0 +1,4 @@
+- [ ] UI Changes
+  - [ ] accept button green, cancel button red
+- [ ] Create a GitHub deployment when we merge on main an a simple script that updates the running server to "LATEST" from the releaase artefact registry
+- [ ] 

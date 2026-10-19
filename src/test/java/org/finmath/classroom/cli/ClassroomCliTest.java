@@ -14,6 +14,8 @@ import java.sql.Statement;
 
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.registration.EnrollmentStore;
+import org.finmath.classroom.feedback.FeedbackSource;
+import org.finmath.classroom.feedback.FeedbackStore;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -130,6 +132,42 @@ class ClassroomCliTest {
         assertEquals(2, run("feedback", "select"));
         assertEquals(2, run("feedback", "select", "--run", "echo ignored"));
         assertEquals(2, run("feedback", "report", "--rubric", "missing"));
+    }
+
+    @Test void feedbackListingDoesNotCreateACollectionDatabaseOrReadCredentials() throws Exception {
+        createAcceptedRegistration("Alice");
+        byte[] enrollmentBytes = Files.readAllBytes(directory.resolve("classroom.db"));
+        var output = new ByteArrayOutputStream();
+        assertEquals(0, ClassroomCli.run(new String[]{"feedback", "list", "--data", directory.toString(),
+                "--lecture", "lecture", "--assignment", "exercise"}, new PrintStream(output), System.err));
+        var listing = JsonFiles.MAPPER.readTree(output.toString(StandardCharsets.UTF_8));
+        assertFalse(listing.path("authoritative").asBoolean());
+        assertTrue(listing.path("results").isEmpty());
+        assertFalse(Files.exists(directory.resolve("feedback.db")));
+        assertArrayEquals(enrollmentBytes, Files.readAllBytes(directory.resolve("classroom.db")));
+        assertEquals(2, run("feedback", "sync", "--data", directory.toString(), "--workflow", "../wrong.yml"));
+        assertFalse(Files.exists(directory.resolve("feedback.db")));
+        assertEquals(2, run("feedback", "list", "--data", directory.toString(), "--assignment", "exercise"));
+    }
+
+    @Test void feedbackListAndShowReadStoredAttemptsWithoutNetwork() throws Exception {
+        createAcceptedRegistration("Alice");
+        var enrollment = EnrollmentStore.readOnly(directory.resolve("classroom.db")).list(null, null).get(0);
+        var time = java.time.Instant.parse("2026-10-19T12:00:00Z");
+        var result = JsonFiles.read(Path.of("examples/grading/result.json"), 1024 * 1024);
+        var storedRun = new FeedbackSource.Run(456, 2, 101, enrollment.repository(), "main", "a".repeat(40),
+                "push", "completed", "failure", ".github/workflows/classroom.yml", 77, time);
+        var artifact = new FeedbackSource.Artifact(999, "classroom-feedback-456-2", 456, 101, "a".repeat(40), false, 1, null);
+        new FeedbackStore(directory, true).record(enrollment, storedRun, "received", null, artifact, new byte[]{1}, result, time);
+        byte[] feedbackBytes = Files.readAllBytes(directory.resolve("feedback.db"));
+        var output = new ByteArrayOutputStream();
+        assertEquals(0, ClassroomCli.run(new String[]{"feedback", "show", "--data", directory.toString(),
+                "--repository-id", "101", "--run-id", "456", "--attempt", "2"}, new PrintStream(output), System.err));
+        assertEquals(result, JsonFiles.MAPPER.readTree(output.toString(StandardCharsets.UTF_8)));
+        assertEquals(0, run("feedback", "list", "--data", directory.toString()));
+        assertEquals(2, run("feedback", "show", "--data", directory.toString(), "--repository-id", "101", "--run-id", "456", "--attempt", "1"));
+        assertEquals(2, run("feedback", "show", "--data", directory.toString(), "--repository-id", "-1", "--run-id", "456", "--attempt", "2"));
+        assertArrayEquals(feedbackBytes, Files.readAllBytes(directory.resolve("feedback.db")));
     }
 
     @Test void scoreRejectsParentAliasesIntoReports() throws Exception {

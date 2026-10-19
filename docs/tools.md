@@ -23,7 +23,8 @@ can leave an older output file in place.
 
 Add `--summary /private/service/feedback.md` to also append a Markdown summary.
 The [autograding action and migration guide](autograding.md) describes shared Maven
-test execution and artifact upload. Action publication and a live pilot are pending.
+test execution and artifact upload. The action has run in an instructor pilot;
+end-to-end server collection still needs a live check.
 
 `feedback select --rubric FILE` prints the validated Surefire method selectors,
 or an empty line for a whole-suite rubric (the caller must omit `-Dtest`).
@@ -32,7 +33,21 @@ or an empty line for a whole-suite rubric (the caller must omit `-Dtest`).
 versioned uploaded-result format. It never executes tests, and requires fresh
 output files. Missing/error/timeout results have a null top-level score. See the
 [result contract](autograding.md#3-uploaded-result-contract-version-1) for fields and
-exit codes. Automatic server collection remains on the [roadmap](roadmap.md).
+exit codes.
+
+## Downloading feedback from GitHub
+
+`feedback sync --data DIR` uses the enrolled repository identities to download
+completed push-run feedback on each assignment's configured branch. It writes
+validated results and collection history to private `DIR/feedback.db`. It reads
+GitHub APIs and does not execute repository code. `feedback list --data DIR`
+and `feedback show --data DIR --repository-id ID --run-id ID --attempt NUMBER`
+read those saved results without network access or credentials.
+
+See [automatic collection](autograding.md#5-automatic-server-collection) for
+permissions, filters and status semantics, and [deployment](deployment.md#6-enable-automatic-feedback-collection)
+for the optional five-minute timer. These commands handle student feedback;
+the `collect` command below requires separate trusted final-runner results.
 
 ## Trusted-result CSV collection
 

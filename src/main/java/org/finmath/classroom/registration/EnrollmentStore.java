@@ -7,6 +7,7 @@ import java.nio.file.Files;
 import java.nio.file.LinkOption;
 import java.nio.file.Path;
 import java.nio.file.attribute.PosixFilePermissions;
+import java.security.SecureRandom;
 import java.sql.Connection;
 import java.sql.DriverManager;
 import java.sql.PreparedStatement;
@@ -16,12 +17,14 @@ import java.sql.Statement;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HexFormat;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.UUID;
+import java.util.function.IntSupplier;
 
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.io.SafeFiles;
@@ -33,6 +36,7 @@ import org.finmath.classroom.registration.RegistrationService.Identity;
 
 /** SQLite enrollment state. Transactions are short; GitHub calls never hold a database lock. */
 public final class EnrollmentStore {
+	private static final SecureRandom REPOSITORY_IDS = new SecureRandom();
 
 	/** Administrative enrollment view; names and declarations remain private service data. */
 	public record Enrollment(String lectureId, String assignmentId, String studentId, String name,
@@ -40,18 +44,25 @@ public final class EnrollmentStore {
 			Long repositoryId, String repository, String repositoryUrl, String status, String problem) { }
 
 	private final String jdbcUrl;
+	private final IntSupplier repositoryIds;
 
 	/** Opens a writable store; only explicit initialization may create or migrate the database. */
 	public EnrollmentStore(Path database, boolean initialize) throws IOException {
-		this(database, initialize, false);
+		this(database, initialize, false, REPOSITORY_IDS::nextInt);
+	}
+
+	/** Allows deterministic allocation failures/collisions in offline tests. */
+	EnrollmentStore(Path database, boolean initialize, IntSupplier repositoryIds) throws IOException {
+		this(database, initialize, false, repositoryIds);
 	}
 
 	/** Opens an existing database without creating files or modifying its schema. */
 	public static EnrollmentStore readOnly(Path database) throws IOException {
-		return new EnrollmentStore(database, false, true);
+		return new EnrollmentStore(database, false, true, REPOSITORY_IDS::nextInt);
 	}
 
-	private EnrollmentStore(Path database, boolean initialize, boolean readOnly) throws IOException {
+	private EnrollmentStore(Path database, boolean initialize, boolean readOnly, IntSupplier repositoryIds) throws IOException {
+		this.repositoryIds = Objects.requireNonNull(repositoryIds);
 		Path target = SafeFiles.validateOutput(database, true);
 		if(!Files.exists(target) && initialize) {
 			if(Files.getFileStore(target.getParent()).supportsFileAttributeView("posix")) {
@@ -193,13 +204,25 @@ public final class EnrollmentStore {
 				created = !row.next();
 			}
 			if(created) {
-				String name = assignment.repositoryPrefix() + "-" + account.login().toLowerCase(Locale.ROOT) + "-" + account.id();
-				if(name.length() > 100) throw new IllegalArgumentException("The repository name exceeds 100 characters. Ask the instructor to use a shorter repository prefix.");
+				String repository = reserveRepositoryName(connection, lecture.organization(), assignment.repositoryPrefix(), account.login());
 				execute(connection, "INSERT INTO enrollments (lecture_id,assignment_id,student_id,accepted_name,identity_source,identity_subject,accepted_at,declaration_version,declaration,repository,status) VALUES (?,?,?,?,?,?,?,?,?,?,'creating')",
-						lecture.id(), assignment.id(), studentId, identity.name(), identity.source(), identity.subject(), now.toString(), RegistrationService.DECLARATION_VERSION, RegistrationService.DECLARATION, lecture.organization() + "/" + name);
+						lecture.id(), assignment.id(), studentId, identity.name(), identity.source(), identity.subject(), now.toString(), RegistrationService.DECLARATION_VERSION, RegistrationService.DECLARATION, repository);
 			}
 			return claim(connection, lecture.id(), assignment.id(), studentId, created);
 		});
+	}
+
+	/** Allocates once inside the reservation transaction; retries always use the recorded name. */
+	private String reserveRepositoryName(Connection connection, String organization, String prefix, String login) throws SQLException {
+		String shortPrefix = prefix.substring(0, Math.min(prefix.length(), 78));
+		String shortLogin = login.substring(0, Math.min(login.length(), 12)).toLowerCase(Locale.ROOT);
+		for(int attempt = 0; attempt < 32; attempt++) {
+			String repository = organization + "/" + shortPrefix + "-" + HexFormat.of().toHexDigits(repositoryIds.getAsInt()) + "-" + shortLogin;
+			try(PreparedStatement query = prepare(connection, "SELECT 1 FROM enrollments WHERE repository=? COLLATE NOCASE", repository); ResultSet row = query.executeQuery()) {
+				if(!row.next()) return repository;
+			}
+		}
+		throw new IllegalArgumentException("Could not reserve a unique repository name. Please try again.");
 	}
 
 	/** Reserves only an existing acceptance for this account, preserving its identity and declaration. */

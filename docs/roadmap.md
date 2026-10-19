@@ -19,11 +19,12 @@ Do not promise automatic deadline enforcement or final grades before those exist
 
 ## 2. Share the student feedback workflow
 
-The [composite action and migration guide](autograding.md) now provide weighted
-JUnit scoring, all-or-nothing Maven suite scoring, summaries and versioned result artifacts. Publish the action and
-pilot it on GitHub before rolling it out. Publish the initial `v1.0.0` and `v1`
-tags before the template workflows. Advance `v1` only to tested, compatible
-releases, keep specific release tags fixed, and use `v2` for breaking changes.
+The [composite action and migration guide](autograding.md) provide weighted
+JUnit scoring, all-or-nothing Maven suite scoring, summaries and versioned result
+artifacts. The shared action has now run on GitHub and generated `result.json`.
+Complete the pilot, including server collection, before wider rollout. Advance
+`v1` only to tested, compatible releases, keep specific release tags fixed, and
+use `v2` for breaking changes.
 It currently builds the scorer JAR from its resolved action source; a published
 JAR with a verified checksum could shorten startup later. No assignment POM needs
 to inherit from this service, and the generated
@@ -40,51 +41,58 @@ Maven `-U` to check for updated SNAPSHOT test artifacts even with a restored cac
 Moving the tag or deploying tests does not itself trigger student workflows.
 Keep unrelated style/documentation jobs outside the grade.
 
-## 3. Collect feedback reliably
+## 3. Operate feedback collection and verify recovery
 
-Make the GitHub artifact the recoverable copy; the classroom server downloads and
-stores it privately. The workflow needs no classroom credential, and an outage of
-the classroom server need not prevent student feedback.
-
-Start with two proposed administrative commands:
+The classroom server now downloads GitHub feedback artifacts and stores validated
+results privately in `DATA/feedback.db`. The existing shared workflow needs no
+change or classroom credential, and a server outage need not prevent student
+feedback. The [collection guide](autograding.md#5-automatic-server-collection)
+describes the implemented administrative commands:
 
 ```text
-feedback sync --data DIR [--lecture ID] [--assignment ID]
+feedback sync --data DIR [--lecture ID] [--assignment ID] [--workflow FILE]
 feedback list --data DIR [--lecture ID] [--assignment ID]
+feedback show --data DIR --repository-id ID --run-id ID --attempt N
 ```
 
-They should reuse the enrolled repository IDs and a server-side credential with
-Actions read access. Keep this separate from the existing `collect` command, which
-only consumes trusted final results. Use the existing application and SQLite; no
-separate queue service is needed.
+Synchronization reuses enrolled numeric repository IDs and the configured
+assignment branch. Set a server-side `CLASSROOM_FEEDBACK_TOKEN` with Actions read
+access; it falls back to `CLASSROOM_GITHUB_TOKEN`. Workflow selection defaults to
+`classroom.yml`, with `CLASSROOM_FEEDBACK_WORKFLOW` and `--workflow` overrides.
+The optional [systemd timer](../deploy/finmath-classroom-feedback.timer) starts a
+sync five minutes after the previous invocation finishes. Deployment and enabling
+the timer remain administrative steps; the code does not enable services itself.
 
-For each configured feedback workflow and enrolled repository, synchronization
-fetches completed push runs on the configured branch. Pull-request merge feedback
-and manual runs remain separate from submission selection. Match repository ID, run ID,
-attempt and exact `head_sha` against GitHub API metadata. Store those identifiers,
-artifact ID/digest, workflow identity and receipt time alongside the feedback.
-Keep rerun history; duplicate collection must be harmless, and older notifications
-must not overwrite newer attempts. A result for an older commit must remain labeled
-with that commit rather than looking current.
+The collector fetches completed push attempts, including failed workflows, and
+cross-checks repository, run, attempt, exact commit and workflow identity against
+GitHub metadata. It retains rerun history and receipt/artifact metadata; duplicate
+collection preserves received results. Older commits remain labeled with their
+own SHA. PR and manual feedback stay outside this collection, which does not
+capture submissions or enforce deadlines.
 
-GitHub lists artifacts by run, so the artifact name and envelope must distinguish
-attempts. Read only the expected JSON from a size-bounded archive; do not execute
-its contents or extract arbitrary paths. Fetch through known GitHub API routes,
-not arbitrary callback URLs. See the [artifact API](https://docs.github.com/en/rest/actions/artifacts)
-and [run-attempt API](https://docs.github.com/en/rest/actions/workflow-runs#get-a-workflow-run-attempt).
+Downloads use read-only GitHub API routes and bounded archives containing only
+the expected `result.json`; the server does not extract arbitrary paths or execute
+student code. Collection statuses expose missing, expired, unavailable and invalid
+artifacts, with null scores. A received error or incomplete result also keeps its
+top-level null score. This remains separate from `collect`, which only consumes
+trusted final results.
 
-After synchronization works, an organization/GitHub App webhook can notify the
-server when `workflow_run` completes. A proposed `POST /hooks/github` verifies the
-raw-body HMAC, records delivery IDs and pending work durably, and acknowledges
-promptly. Downloads run outside the request and database write transaction.
-This is a GitHub webhook delivered to the service, not a privileged workflow that
-executes student code. See [webhook practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
+Complete a live end-to-end collection pilot using the deployed token and host.
+Test repeated sync, old-run reruns, temporary outages and rate-limit recovery, then
+back up and restore `feedback.db` alongside the registration data. Subsequent syncs
+retry missing/transient results, and rate-limit delays persist across restarts.
+Set artifact retention longer than the expected recovery window: artifacts deleted
+or expired before collection cannot be recovered by retrying.
 
-Periodic synchronization and manual retries remain necessary: GitHub does not
-automatically redeliver failed webhooks. Retry transient API/rate-limit failures
-with backoff and show unavailable, expired and invalid artifacts explicitly.
-Set retention long enough for the expected recovery window and save fetched
-results locally; deleted or expired artifacts cannot be recovered by retries.
+A future organization/GitHub App webhook can notify the server when `workflow_run`
+completes. A proposed `POST /hooks/github` would verify the raw-body HMAC, record
+delivery IDs and pending work durably, and acknowledge promptly. Downloads would
+run outside the request and database write transaction. This is a GitHub webhook
+delivered to the service, not a privileged workflow that executes student code.
+See [webhook practices](https://docs.github.com/en/webhooks/using-webhooks/best-practices-for-using-webhooks).
+
+Periodic synchronization and manual retries would remain necessary alongside
+webhooks: GitHub does not automatically redeliver failed deliveries.
 See [failed deliveries](https://docs.github.com/en/webhooks/using-webhooks/handling-failed-webhook-deliveries).
 
 A direct result POST from the workflow is also possible using short-lived GitHub

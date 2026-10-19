@@ -1,0 +1,20 @@
+[Unit]
+Description=Download finmath-classroom student feedback from GitHub
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=finmath-classroom
+Group=finmath-classroom
+EnvironmentFile=/etc/finmath-classroom/classroom.env
+WorkingDirectory=/var/lib/finmath-classroom
+ExecStart=/usr/lib/jvm/java-21-openjdk-amd64/bin/java -jar /opt/finmath-classroom/finmath-classroom.jar feedback sync --data /var/lib/finmath-classroom
+TimeoutStartSec=30min
+StateDirectory=finmath-classroom
+StateDirectoryMode=0700
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict

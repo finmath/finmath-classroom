@@ -20,6 +20,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
@@ -31,6 +32,8 @@ import org.finmath.classroom.registration.RegistrationService.Identity;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class RegistrationServiceTest {
 
@@ -66,7 +69,8 @@ class RegistrationServiceTest {
 	@Test void testAcceptancePersistsDeclarationAndResumesAfterRestart() throws Exception {
 		Enrollment enrollment = accept();
 		assertEquals("invitation_pending", enrollment.status());
-		assertEquals("https://github.com/org/term-exercise-alice-42", enrollment.repositoryUrl());
+		assertTrue(enrollment.repository().matches("org/term-exercise-[0-9a-f]{8}-alice"));
+		assertEquals("https://github.com/" + enrollment.repository(), enrollment.repositoryUrl());
 		assertEquals(101L, enrollment.repositoryId());
 		assertEquals(List.of("create", "staff", "invite"), github.operations);
 		assertEquals("self", enrollment.identitySource());
@@ -109,14 +113,19 @@ class RegistrationServiceTest {
 		assertEquals(1, github.creations);
 	}
 
-	@Test void testNewRepositoryNameUsesLowercaseLoginAndNumericId() throws Exception {
+	@Test void testNewRepositoryNameUsesPaddedHexIdAndLowercaseLogin() throws Exception {
+		store = new EnrollmentStore(directory.resolve("classroom.db"), false, () -> 0x123);
+		service = new RegistrationService(config, store, github, Clock.fixed(now, ZoneOffset.UTC));
 		github.current = new User(42, "Alice");
-		assertEquals("org/term-exercise-alice-42", accept().repository());
+		Enrollment enrollment = accept();
+		assertEquals("org/term-exercise-00000123-alice", enrollment.repository());
+		assertEquals(42L, enrollment.githubId());
 	}
 
-	@Test void testLegacyRepositoryNameSurvivesRetryAndUsernameChange() throws Exception {
+	@ParameterizedTest
+	@ValueSource(strings = {"org/term-exercise-42", "org/term-exercise-alice-42"})
+	void testLegacyRepositoryNameSurvivesRetryAndUsernameChange(String legacyRepository) throws Exception {
 		Enrollment original = accept();
-		String legacyRepository = "org/term-exercise-42";
 		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
 			statement.executeUpdate("UPDATE enrollments SET repository='" + legacyRepository + "'");
 		}
@@ -131,23 +140,111 @@ class RegistrationServiceTest {
 		assertEquals(1, github.creations);
 	}
 
-	@Test void testRepositoryNameLengthCheckedOnlyForNewAcceptance() throws Exception {
+	@Test void testLongPrefixAndLoginProduce100CharacterNameWithoutTruncatingAccountIdentity() throws Exception {
+		store = new EnrollmentStore(directory.resolve("classroom.db"), false, () -> -1);
 		Assignment assignment = new Assignment("long", "Long prefix", "org/template", "p".repeat(80), "main", now.plusSeconds(3600), "assignment-secret", null, null);
 		ClassroomConfig longPrefix = new ClassroomConfig(List.of(new Lecture("lecture", "Lecture", "org", "staff", "lecture-secret", List.of(), List.of(assignment))));
 		store.importConfiguration(longPrefix, github);
 		service = new RegistrationService(longPrefix, store, github, Clock.fixed(now, ZoneOffset.UTC));
-		github.current = new User(42, "a".repeat(16));
-		Enrollment original = service.accept("lecture", "long", self, github.current, "lecture-secret", "assignment-secret", true);
+		github.current = new User(Long.MAX_VALUE, "A".repeat(39));
+		Identity identity = new Identity("self", Long.toString(Long.MAX_VALUE), "Alice Example");
+		Enrollment original = service.accept("lecture", "long", identity, github.current, "lecture-secret", "assignment-secret", true);
+		assertEquals("org/" + "p".repeat(78) + "-ffffffff-" + "a".repeat(12), original.repository());
 		assertEquals(100, original.repository().substring("org/".length()).length());
-		github.current = new User(42, "a".repeat(17));
+		assertEquals(Long.MAX_VALUE, original.githubId());
+		assertEquals("A".repeat(39), original.githubLogin());
+		assertEquals("A".repeat(39), github.invitedLogin);
+		assertEquals(Long.MAX_VALUE, ((Number) store.students("lecture").get(0).get("github_id")).longValue());
+		github.current = new User(Long.MAX_VALUE, "b".repeat(39));
 		assertEquals(original.repository(), service.retry("lecture", "long", github.current).repository());
-		assertEquals(original.repository(), service.accept("lecture", "long", self, github.current, "lecture-secret", "assignment-secret", true).repository());
-		github.current = new User(77, "b".repeat(17));
-		IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> service.accept("lecture", "long", new Identity("self", "77", "Bob"), github.current, "lecture-secret", "assignment-secret", true));
-		assertTrue(failure.getMessage().contains("100 characters"));
+		assertEquals(original.repository(), service.accept("lecture", "long", identity, github.current, "lecture-secret", "assignment-secret", true).repository());
+		assertEquals("b".repeat(39), github.invitedLogin);
 		assertEquals(1, store.list(null, null).size());
 		assertEquals(1, store.students(null).size());
 		assertEquals(1, github.creations);
+	}
+
+	@Test void testGeneratedNameSurvivesPreCreationFailureRestartAndUsernameChange() throws Exception {
+		store = new EnrollmentStore(directory.resolve("classroom.db"), false, () -> 0x1234abcd);
+		service = new RegistrationService(config, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		github.validTemplate = false;
+		assertThrows(IllegalArgumentException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertEquals("retryable", failed.status());
+		assertNull(failed.repositoryId());
+		assertEquals("org/term-exercise-1234abcd-alice", failed.repository());
+		assertEquals(0, github.creations);
+		EnrollmentStore reopened = new EnrollmentStore(directory.resolve("classroom.db"), false,
+				() -> { throw new AssertionError("Retry must keep the previously allocated repository name"); });
+		service = new RegistrationService(config, reopened, github, Clock.fixed(now.plusSeconds(10), ZoneOffset.UTC));
+		github.current = new User(42, "renamed-alice");
+		assertThrows(IllegalArgumentException.class, () -> service.accept("lecture", "exercise", self, github.current, "lecture-secret", "assignment-secret", true));
+		assertEquals(failed.repository(), reopened.list(null, null).get(0).repository());
+		github.validTemplate = true;
+		Enrollment retried = retry();
+		assertEquals(failed.repository(), retried.repository());
+		assertEquals(failed.studentId(), retried.studentId());
+		assertEquals(failed.acceptedAt(), retried.acceptedAt());
+		assertEquals("renamed-alice", retried.githubLogin());
+		assertEquals("renamed-alice", github.invitedLogin);
+		assertEquals(1, github.creations);
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"org/term-exercise-42", "org/term-exercise-alice-42"})
+	void testLegacyUncreatedRepositoryNameSurvivesRetry(String legacyRepository) throws Exception {
+		github.validTemplate = false;
+		assertThrows(IllegalArgumentException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertNull(failed.repositoryId());
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE enrollments SET repository='" + legacyRepository + "'");
+		}
+		github.validTemplate = true;
+		github.current = new User(42, "renamed-alice");
+		Enrollment retried = retry();
+		assertEquals(legacyRepository, retried.repository());
+		assertEquals(failed.studentId(), retried.studentId());
+		assertEquals(failed.acceptedAt(), retried.acceptedAt());
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testNameCollisionAcrossLecturesAfterTruncationAndCaseFoldingGetsNewId() throws Exception {
+		AtomicInteger allocations = new AtomicInteger();
+		int[] ids = {0, 0, Integer.MIN_VALUE};
+		store = new EnrollmentStore(directory.resolve("classroom.db"), false, () -> ids[allocations.getAndIncrement()]);
+		Assignment firstAssignment = new Assignment("first", "First exercise", "org/template", "A".repeat(78) + "01", "main", null, "assignment-secret", null, null);
+		Assignment secondAssignment = new Assignment("second", "Second exercise", "org/template", "a".repeat(78) + "02", "main", null, "assignment-secret", null, null);
+		Lecture firstLecture = new Lecture("first-lecture", "First lecture", "org", "staff", "lecture-secret", List.of(), List.of(firstAssignment));
+		Lecture secondLecture = new Lecture("second-lecture", "Second lecture", "ORG", "staff", "lecture-secret", List.of(), List.of(secondAssignment));
+		store.importConfiguration(new ClassroomConfig(List.of(firstLecture, secondLecture)), github);
+		User firstAccount = new User(42, "a".repeat(12) + "-first");
+		Enrollment first = store.reserve(firstLecture, firstAssignment, self, firstAccount, now);
+		store.finish(first, "needs_attention", "Uncertain creation must retain its name reservation");
+		User secondAccount = new User(77, "A".repeat(12) + "-second");
+		Enrollment second = store.reserve(secondLecture, secondAssignment, new Identity("self", "77", "Bob"), secondAccount, now);
+		assertEquals("org/" + "A".repeat(78) + "-00000000-" + "a".repeat(12), first.repository());
+		assertEquals("ORG/" + "a".repeat(78) + "-80000000-" + "a".repeat(12), second.repository());
+		assertEquals(3, allocations.get());
+		assertEquals(2, store.list(null, null).size());
+		assertTrue(github.operations.isEmpty());
+	}
+
+	@Test void testExhaustedNameCollisionsRollBackStudentAndEnrollment() throws Exception {
+		AtomicInteger allocations = new AtomicInteger();
+		store = new EnrollmentStore(directory.resolve("classroom.db"), false, () -> { allocations.incrementAndGet(); return 0; });
+		User firstAccount = new User(42, "a".repeat(12) + "-first");
+		Enrollment first = store.reserve(config.lecture("lecture"), config.assignment("lecture", "exercise"), self, firstAccount, now);
+		first = store.finish(first, "retryable", null);
+		List<Map<String, Object>> originalStudents = store.students(null);
+		User secondAccount = new User(77, "a".repeat(12) + "-second");
+		IllegalArgumentException failure = assertThrows(IllegalArgumentException.class, () -> store.reserve(config.lecture("lecture"),
+				config.assignment("lecture", "exercise"), new Identity("self", "77", "Bob"), secondAccount, now));
+		assertTrue(failure.getMessage().contains("unique repository name"));
+		assertEquals(33, allocations.get());
+		assertEquals(List.of(first), store.list(null, null));
+		assertEquals(originalStudents, store.students(null));
+		assertTrue(github.operations.isEmpty());
 	}
 
 	@Test void testRetryCannotCreateAcceptanceOrUseAnotherAccount() throws Exception {
@@ -318,7 +415,7 @@ class RegistrationServiceTest {
 		assertEquals("official-student", enrollment.studentId());
 		assertEquals(self.name(), enrollment.name());
 		assertEquals("invitation_pending", enrollment.status());
-		assertEquals("org/term-exercise-renamed-alice-42", enrollment.repository());
+		assertTrue(enrollment.repository().matches("org/term-exercise-[0-9a-f]{8}-renamed-alic"));
 		assertEquals(1, store.students("lecture").size());
 		Map<String, Object> accepted = store.students("lecture").get(0);
 		assertEquals(rosterName, accepted.get("name"));

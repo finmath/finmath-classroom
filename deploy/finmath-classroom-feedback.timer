@@ -1,0 +1,11 @@
+[Unit]
+Description=Collect finmath-classroom feedback every five minutes
+
+[Timer]
+OnBootSec=2min
+OnUnitInactiveSec=5min
+RandomizedDelaySec=30s
+Unit=finmath-classroom-feedback.service
+
+[Install]
+WantedBy=timers.target

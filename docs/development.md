@@ -17,6 +17,7 @@ no Python runtime is required.
 | `registration` | Configuration, persistent identities, enrollment and GitHub access |
 | `web` | Server-rendered acceptance pages, GitHub OAuth, Moodle launches and status |
 | `grading` | Offline JUnit feedback scoring and trusted-result CSV collection |
+| `feedback` | Read-only GitHub artifact collection, validation and private feedback history |
 | `workspace` | Generation of the separate Maven/IntelliJ lecture workspace |
 | `io` | Bounded JSON/XML input and private atomic output |
 
@@ -53,6 +54,12 @@ publish those solutions incidentally.
 - Feedback from student-controlled workflows, POMs, tests or reports is untrusted.
   Final grading requires trusted tests/build configuration and an isolated runner.
   Never execute student code in the administration process or with its credentials.
+- Feedback collection uses a separate `feedback.db` schema version 1. It reads the
+  existing registration database without migrating it. Received results are immutable
+  per numeric repository ID, run ID and attempt; failures cannot erase a result.
+  Parse bounded archives without extraction, verify run correlation, and keep missing
+  results distinct from a failed test with a numeric score. HTTP operations must not
+  hold SQLite write transactions or forward credentials to artifact storage.
 - Preserve rubric, feedback, manifest and final-result formats, deterministic
   scoring, duplicate/missing-test handling, bounded inputs, safe XML and formula-safe
   CSV. Numeric JSON formatting need not be byte-identical (`5` and `5.0`). Correlating
@@ -91,9 +98,13 @@ grade return are not implemented.
 | 2026-10-18: central feedback updates | Switched assignment templates to the maintained `v1` action reference and added Maven `-U` to refresh SNAPSHOT checks despite dependency caching. |
 | 2026-10-19: registration diagnostics | Added error references correlated with sanitized GitHub operation/status logs, and accepted omission of the optional repository `is_template` field. Source templates still require an explicit true value; creation recovery and numeric identity checks are unchanged. |
 | 2026-10-19: name prefilling | Added editable name suggestions from the signed-in account's lecture record, falling back to its optional GitHub profile name. Verified roster preassignment and normal student acceptance; numeric identity, Moodle precedence and separate roster/accepted names remain unchanged. No database or configuration schema migration is required. |
+| 2026-10-19: bounded repository names | New acceptances use at most 78 prefix characters, an eight-character random hex identifier, and at most 12 lowercase GitHub username characters. Names are reserved transactionally with local collision checks; existing names and full numeric identities stay intact. This requires a JAR update only, without a configuration or database migration. |
+| 2026-10-19: feedback collection | Added read-only GitHub Actions polling through `feedback sync`, offline `list`/`show`, a separate private SQLite history, and an optional five-minute systemd timer. The existing version-1 artifact format and student workflows remain compatible. Live server collection is pending deployment and a pilot. |
+| 2026-10-19: server CLI helper | Added `sudo classroom ...` for registration and feedback administration with fixed deployment paths, service-account execution and selective credential loading. Documented a personal sudo/SSH account and staged retirement of direct root SSH login. No server credentials or SSH settings were changed. |
 
-An instructor-account registration pilot was reported working. A complete learner
-pilot, the intended Moodle installation and public hosting still need validation.
+An instructor-account registration pilot and shared action execution were reported
+working on the public deployment. A complete learner pilot, the intended Moodle
+installation and live feedback collection still need validation.
 No automatic submission capture, source archive or authoritative final runner has
 been implemented. The [README capability table](../README.md#what-is-available)
 describes current functionality; the roadmap describes future functionality.
@@ -198,3 +209,36 @@ adapter. The packaged JAR passed Java 17 CLI checks for configuration, assignmen
 listing, disposable offline import, repeated import and student/enrollment listing.
 The private teaching configuration also passed validation. No deployment or live
 GitHub writes were performed; the new name-prefilling browser pilot is pending.
+
+Bounded repository-name verification on 2026-10-19: `mvn -B -ntp verify` passed
+all 246 tests, with no failures, errors or skips. Tests cover exact 100-character
+names, full numeric identity retention, case-insensitive collisions after
+truncation, bounded allocation failure and transaction rollback, and preservation
+of existing names through retries, username changes and restarts. The browser
+integration test exercises persistence and access grants with a fake GitHub
+adapter. Java 17 packaged CLI checks passed for help, configuration validation,
+assignment listing, disposable offline import, student/enrollment listing and
+database permissions; the private teaching configuration also passed validation.
+The JAR was rebuilt; deployment and a live acceptance with the new naming rule
+remain pending.
+
+Feedback collection verification on 2026-10-19: `mvn -B -ntp verify` passed all
+333 tests without failures, errors or skips. Offline tests cover API permissions
+and rate-limit responses, unfiltered pagination with unrelated PR/tag runs,
+credential-free artifact redirects, bounded ZIP/JSON validation, run correlation,
+partial scores, missing/expired feedback, old reruns, immutable received history,
+precise decimal storage and recovery after unavailable older attempts. The
+packaged JAR passed Java 17 CLI checks for offline import, read-only listing,
+empty synchronization, missing-result errors, private database permissions and
+an unchanged registration database. All 17 existing action shell scenarios also
+passed on Java 17 with fake assignment tools. No live GitHub requests, student
+code execution, deployment or tag changes were performed. The supplied systemd
+units still need validation on the Linux server and an end-to-end artifact pilot.
+
+Server CLI helper verification on 2026-10-19: Bash syntax checks and
+`bash scripts/test-classroom-wrapper.sh` passed locally. Checks cover command
+allowlisting, selective credential loading, fixed data paths, literal arguments,
+data-override rejection and refusal to run administrative commands without sudo.
+No sudo, systemd, Java or GitHub operations were executed by these shell checks.
+No Java changed in this follow-up, so Maven verification was not repeated. Actual
+execution of the helper on Ubuntu and the personal SSH login remain operator steps.

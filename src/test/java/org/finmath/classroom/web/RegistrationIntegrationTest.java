@@ -3,6 +3,8 @@ package org.finmath.classroom.web;
 import static org.hamcrest.Matchers.containsString;
 import static org.hamcrest.Matchers.not;
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
@@ -20,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Stream;
 
 import org.finmath.classroom.registration.ClassroomConfig;
@@ -83,11 +86,23 @@ class RegistrationIntegrationTest {
 		when(github.authorizationUrl(anyString(), anyString(), anyString())).thenReturn("https://github.com/login/oauth/authorize");
 		when(github.authenticate(anyString(), anyString(), anyString())).thenReturn(account);
 		when(github.user("alice")).thenReturn(account);
-		when(github.repository("org/template")).thenReturn(new Repository(1, "org/template", true, false, true, "main"));
-		Repository repository = new Repository(101, "org/term-task-alice-42", true, false, false, "main");
-		when(github.create("org/template", "org", "term-task-alice-42")).thenReturn(repository);
-		when(github.repository("org/term-task-alice-42")).thenReturn(repository);
-		when(github.invite("org/term-task-alice-42", "alice")).thenReturn(true);
+		AtomicReference<Repository> createdRepository = new AtomicReference<>();
+		when(github.create(eq("org/template"), eq("org"), anyString())).thenAnswer(invocation -> {
+			String name = invocation.getArgument(2);
+			assertTrue(name.matches("term-task-[0-9a-f]{8}-alice"));
+			Repository repository = new Repository(101, "org/" + name, true, false, false, "main");
+			createdRepository.set(repository);
+			return repository;
+		});
+		when(github.repository(anyString())).thenAnswer(invocation -> {
+			String fullName = invocation.getArgument(0);
+			if(fullName.equals("org/template")) return new Repository(1, fullName, true, false, true, "main");
+			Repository repository = createdRepository.get();
+			assertNotNull(repository);
+			assertEquals(repository.fullName(), fullName);
+			return repository;
+		});
+		when(github.invite(anyString(), eq("alice"))).thenReturn(true);
 		Lecture lecture = ClassroomConfig.load(data).lecture("lecture");
 		store.importConfiguration(new ClassroomConfig(List.of(new Lecture(lecture.id(), lecture.title(), lecture.organization(),
 				lecture.staffTeam(), lecture.registrationKey(), List.of(new Student("roster-alice", "Alice Roster", "alice"),
@@ -116,6 +131,8 @@ class RegistrationIntegrationTest {
 		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", csrf).param("name", "Alice Example")
 				.param("lectureKey", "lecture-key").param("assignmentKey", "assignment-key").param("declaration", "true"))
 				.andExpect(status().isSeeOther());
+		Repository repository = createdRepository.get();
+		assertNotNull(repository);
 		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
 				.andExpect(content().string(containsString(repository.url())))
 				.andExpect(content().string(not(containsString("name='lectureKey'"))))
@@ -140,6 +157,11 @@ class RegistrationIntegrationTest {
 				.andExpect(content().string(not(containsString("Refresh access status"))));
 		assertEquals(1, store.list(null, null).size());
 		assertEquals("active", store.list(null, null).get(0).status());
+		EnrollmentStore reopened = new EnrollmentStore(data.resolve("classroom.db"), false);
+		assertEquals(repository.fullName(), reopened.list(null, null).get(0).repository());
+		assertEquals(repository.id(), reopened.list(null, null).get(0).repositoryId());
+		verify(github, times(2)).grantStaff("org", "staff", repository.fullName());
+		verify(github, times(2)).invite(repository.fullName(), "alice");
 		verify(github, times(1)).create(anyString(), anyString(), anyString());
 	}
 }
