@@ -14,7 +14,7 @@
   <version>0.1.0-SNAPSHOT</version>
   <name>finmath classroom</name>
   <description>Self-hosted programming assignments with GitHub sign-in, private repositories and automatic test feedback</description>
-  <url>https://finmath.github.io/finmath-classroom/</url>
+  <url>https://www.finmath.net/finmath-classroom/</url>
   <inceptionYear>2026</inceptionYear>
   <scm>
     <connection>scm:git:https://github.com/finmath/finmath-classroom.git</connection>
@@ -58,6 +58,7 @@
         <version>3.22.0</version>
         <configuration>
           <generateReports>false</generateReports>
+          <relativizeSiteLinks>false</relativizeSiteLinks>
         </configuration>
       </plugin>
       <plugin>

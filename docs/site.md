@@ -1,6 +1,6 @@
 # Project site
 
-The public site at <https://finmath.github.io/finmath-classroom/> introduces the
+The public site at <https://www.finmath.net/finmath-classroom/> introduces the
 project, its teaching motivation and a fictional assignment-feedback demo.
 Operational reference documentation remains in this repository and is linked
 from the site.
@@ -14,17 +14,24 @@ mvn -B -ntp site
 bash scripts/check-site.sh
 ```
 
-Maven Site Plugin generates `target/site` from `src/site`. The site uses the Maven
-Fluido skin with project CSS and no third-party font or analytics services. Open
+Maven Site Plugin renders Markdown from `src/site/markdown` into `target/site`,
+using Maven Doxia and the Fluido skin, as in the other finmath projects. A shared
+stylesheet provides the project colors and responsive layout. Open
 `target/site/index.html` in a browser to preview it. After deleting or renaming
-pages, run `mvn -B -ntp clean site` to remove obsolete generated output.
+pages, or changing the Maven site configuration, run `mvn -B -ntp clean site` to
+remove obsolete generated output and rebuild every page.
 
 | Source | Purpose |
 | --- | --- |
-| `src/site/site.xml` | Skin, site metadata and navigation settings |
-| `src/site/xdoc/` | Overview, motivation and example content |
-| `src/site/resources/` | Public styles and other static assets |
+| `src/site/site.xml` | Maven skin, navigation and site metadata |
+| `src/site/markdown/*.md` | Overview, motivation and example content |
+| `src/site/resources/css/site.css` | Shared responsive layout and typography |
 | `.github/workflows/pages.yml` | Build validation and GitHub Pages deployment |
+
+Edit the Markdown sources using ordinary headings, paragraphs, lists, tables and
+fenced code blocks. Use links such as `demo.html` for other generated pages.
+Navigation belongs in `site.xml`; presentation belongs in the shared CSS. Keep
+generated HTML in `target/site`, rather than maintaining duplicate HTML pages.
 
 Only public content belongs under `src/site`. Keep deployment-specific notes and
 data under ignored `local/`; never copy acceptance URLs with registration keys,
@@ -35,9 +42,11 @@ deliberately leaves the smallest-root implementation as an exercise.
 ## GitHub Pages
 
 In the repository's **Settings → Pages → Build and deployment**, select
-**GitHub Actions** as the source. No custom domain or `gh-pages` branch is required.
-For a fork, update the project URL in `pom.xml`, the site links, and the repository
-guard in the workflow before enabling publication.
+**GitHub Actions** as the source. No `gh-pages` branch is required. This project
+inherits the organization's existing `www.finmath.net` Pages domain, with HTTPS
+enforced. A fork can use its default `https://OWNER.github.io/REPOSITORY/` address;
+update the project URL in `pom.xml`, site links, and the
+repository guard in the workflow before enabling publication.
 
 The **Project site** workflow builds and checks pull requests. Pushes to `main`
 also upload only `target/site` and publish it through the `github-pages`

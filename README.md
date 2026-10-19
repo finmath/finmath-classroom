@@ -12,7 +12,7 @@ still pending.
 
 **Start here:** [Getting started](GETTING_STARTED.md) walks through an offline
 trial, a local browser preview, and a first live GitHub assignment.
-The [project site](https://finmath.github.io/finmath-classroom/) introduces the
+The [project site](https://www.finmath.net/finmath-classroom/) introduces the
 teaching motivation and a small assignment-feedback demo.
 
 ## How it works

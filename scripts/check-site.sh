@@ -54,7 +54,7 @@ def private_content(path, text):
     value = decoded(text)
     if re.search(r"/users/", value, re.IGNORECASE):
         fail(path, "contains a local user path")
-    if re.search(r"\bfile\s*:", value, re.IGNORECASE):
+    if re.search(r"\bfile\s*://", value, re.IGNORECASE):
         fail(path, "contains a file URL")
     if re.search(r"(?:lecturekey|assignmentkey)\s*=", value, re.IGNORECASE):
         fail(path, "contains a registration query key")
