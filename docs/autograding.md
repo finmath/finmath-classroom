@@ -335,7 +335,8 @@ java -jar target/finmath-classroom.jar feedback sync \
 
 java -jar target/finmath-classroom.jar feedback list \
   --data /var/lib/finmath-classroom \
-  --lecture numerical-methods --assignment quadratic-equation
+  --lecture numerical-methods --assignment quadratic-equation \
+  --latest --format table
 
 java -jar target/finmath-classroom.jar feedback show \
   --data /var/lib/finmath-classroom \
@@ -349,6 +350,30 @@ to synchronize or list all enrolled repositories; `--assignment` requires
 `CLASSROOM_FEEDBACK_WORKFLOW` or, for one synchronization, `--workflow feedback.yml`.
 Use scoped synchronizations when assignments have different workflow filenames.
 `list` and `show` read local data without credentials or network access.
+
+For the same listing with the installed server helper, run:
+
+```sh
+sudo classroom feedback list --latest --format table \
+  --lecture numerical-methods --assignment quadratic-equation
+```
+
+`--latest` includes each currently enrolled student and assignment. It selects the
+newest known run by GitHub creation time, then run ID, and uses that run's highest
+known attempt. Rerunning an older run or downloading its artifact later does not
+replace a newer run. If the selected attempt is pending, missing, expired, invalid
+or unavailable, its score stays unavailable; the listing never substitutes an
+older scored result. Enrollments without stored attempts show `not_collected`, or
+`unavailable` when a repository check failed.
+
+The table columns are `LECTURE`, `ASSIGNMENT`, `NAME`, `GITHUB`, `RUN`, `ATTEMPT`,
+`COLLECTION`, `RESULT`, `POINTS` and `COMMIT`. Collection status and test outcome
+are separate; a received result can contain failed tests. The default remains
+all-history JSON. Use `--latest` alone for the latest view as JSON, or
+`--format table` alone for history as a table. Run `feedback sync` before listing
+for a fresher snapshot; these local records do not establish the current branch
+head or a final grade. Deploy the updated JAR to enable the options. The existing
+helper already forwards them, and no database migration is required.
 
 Synchronization records completed push attempts on each assignment's configured
 branch, including failed workflows. It revisits older runs to discover reruns,

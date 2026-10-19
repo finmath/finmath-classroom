@@ -16,6 +16,7 @@ import java.util.Set;
 
 import org.finmath.classroom.feedback.FeedbackStore;
 import org.finmath.classroom.feedback.FeedbackSync;
+import org.finmath.classroom.feedback.FeedbackListing;
 import org.finmath.classroom.feedback.GitHubFeedbackClient;
 import org.finmath.classroom.grading.FeedbackScorer;
 import org.finmath.classroom.grading.FeedbackArtifact;
@@ -148,10 +149,12 @@ public final class ClassroomCli {
     private static int feedbackCollection(String[] args, PrintStream out) throws IOException {
         Set<String> accepted = switch (args[0]) {
             case "sync" -> Set.of("--data", "--lecture", "--assignment", "--workflow");
-            case "list" -> Set.of("--data", "--lecture", "--assignment");
+            case "list" -> Set.of("--data", "--lecture", "--assignment", "--format");
             default -> Set.of("--data", "--repository-id", "--run-id", "--attempt");
         };
-        var options = options(args, accepted, Set.of());
+        var options = options(args, accepted, args[0].equals("list") ? Set.of("--latest") : Set.of());
+        String format = options.getOrDefault("--format", "json");
+        if (!Set.of("json", "table").contains(format)) throw new IllegalArgumentException("--format must be json or table");
         Path data = required(options, "--data");
         ClassroomConfig config = ClassroomConfig.load(data);
         String lecture = options.get("--lecture");
@@ -175,15 +178,17 @@ public final class ClassroomCli {
             out.println(JsonFiles.MAPPER.writeValueAsString(report));
             return report.errors() > 0 || report.deferred() ? 2 : 0;
         }
-        if (args[0].equals("list") && !Files.exists(data.resolve("feedback.db"), java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
-            out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false, "repositories", List.of(), "results", List.of())));
-            return 0;
-        }
-        FeedbackStore store = new FeedbackStore(data, false);
         if (args[0].equals("list")) {
-            out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false,
-                    "repositories", store.checks(lecture, assignment), "results", store.list(lecture, assignment))));
+            FeedbackStore store = Files.exists(data.resolve("feedback.db"), java.nio.file.LinkOption.NOFOLLOW_LINKS)
+                    ? new FeedbackStore(data, false) : null;
+            List<Map<String, Object>> checks = store == null ? List.of() : store.checks(lecture, assignment);
+            List<Map<String, Object>> rows = store == null ? List.of() : store.list(lecture, assignment);
+            if (options.containsKey("--latest")) rows = FeedbackListing.latest(enrollments.list(lecture, assignment), rows, checks);
+            if (format.equals("table")) printFeedback(rows, out);
+            else out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false,
+                    "repositories", checks, "results", rows)));
         } else {
+            FeedbackStore store = new FeedbackStore(data, false);
             long repository = positiveOption(options, "--repository-id");
             long run = positiveOption(options, "--run-id");
             long attempt = positiveOption(options, "--attempt");
@@ -193,6 +198,28 @@ public final class ClassroomCli {
             out.println(JsonFiles.MAPPER.writeValueAsString(result));
         }
         return 0;
+    }
+
+    private static void printFeedback(List<Map<String, Object>> results, PrintStream out) {
+        List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"LECTURE", "ASSIGNMENT", "NAME", "GITHUB", "RUN", "ATTEMPT", "COLLECTION", "RESULT", "POINTS", "COMMIT"});
+        for (Map<String, Object> result : results) {
+            String points = feedbackValue(result.get("score"));
+            if (result.get("maxScore") != null) points += "/" + feedbackValue(result.get("maxScore"));
+            String commit = feedbackValue(result.get("commit"));
+            rows.add(new String[]{feedbackValue(result.get("lectureId")), feedbackValue(result.get("assignmentId")),
+                    feedbackValue(result.get("name")), feedbackValue(result.get("githubLogin")),
+                    feedbackValue(result.get("runId")), feedbackValue(result.get("runAttempt")),
+                    feedbackValue(result.get("collectionStatus")), feedbackValue(result.get("feedbackStatus")),
+                    points, commit.substring(0, Math.min(commit.length(), 12))});
+        }
+        printTable(rows, out);
+    }
+
+    private static String feedbackValue(Object value) {
+        if (value == null) return "-";
+        if (value instanceof java.math.BigDecimal number) return number.stripTrailingZeros().toPlainString();
+        return value.toString();
     }
 
     private static long positiveOption(Map<String, String> options, String key) {
@@ -309,7 +336,11 @@ public final class ClassroomCli {
 		for(Enrollment enrollment : enrollments) {
 			rows.add(new String[] {enrollment.lectureId(), enrollment.assignmentId(), enrollment.studentId(), enrollment.name(), enrollment.githubLogin(), enrollment.status(), enrollment.repository()});
 		}
-		int[] widths = new int[7];
+		printTable(rows, out);
+	}
+
+	private static void printTable(List<String[]> rows, PrintStream out) {
+		int[] widths = new int[rows.get(0).length];
 		for(String[] row : rows) {
 			for(int index=0; index<row.length; index++) {
 				row[index] = row[index] == null ? "" : row[index].replaceAll("[\\p{Cc}\\p{Cf}\\p{Zl}\\p{Zp}]", " ");
@@ -393,7 +424,7 @@ public final class ClassroomCli {
                   feedback select --rubric FILE
                   feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER --output FILE [--summary FILE]
                   feedback sync --data DIR [--lecture ID] [--assignment ID] [--workflow classroom.yml]
-                  feedback list --data DIR [--lecture ID] [--assignment ID]
+                  feedback list --data DIR [--lecture ID] [--assignment ID] [--latest] [--format json|table]
                   feedback show --data DIR --repository-id NUMBER --run-id NUMBER --attempt NUMBER
                   collect --manifest FILE --results DIR --output FILE.csv
                   workspace (--check | --write) [--modules FILE] [--repositories-root DIR] [--output DIR]
@@ -407,6 +438,7 @@ public final class ClassroomCli {
                   serve [Spring Boot options]
 
                 Feedback sync downloads student-workflow artifacts into private DIR/feedback.db; list/show are read-only.
+                Feedback list --latest shows the newest known run and its last attempt per enrolled student/assignment.
                 Scoring is feedback only. The collect command requires trusted final-runner results.
                 Registration configuration lives in DIR/lectures; its database is DIR/classroom.db.
                 Check and listing commands are read-only. Import pins supplied GitHub usernames using read-only API calls.

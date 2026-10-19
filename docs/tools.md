@@ -44,6 +44,22 @@ GitHub APIs and does not execute repository code. `feedback list --data DIR`
 and `feedback show --data DIR --repository-id ID --run-id ID --attempt NUMBER`
 read those saved results without network access or credentials.
 
+For one row per enrolled student and assignment, use the server helper:
+
+```sh
+sudo classroom feedback list --latest --format table \
+  --lecture numerical-methods --assignment quadratic-equation
+```
+
+Omit the selectors to include all current enrollments. With Java directly, use
+`feedback list --data DIR --latest --format table`. The latest view selects the
+newest known run and its highest attempt, including missing or invalid feedback
+with an unavailable score. Enrollments without a stored attempt are also shown.
+Run `feedback sync` first for a fresher local snapshot. The default listing remains
+all-history JSON; `--latest` also works with JSON, and `--format table` can display
+the full history. Deploy the updated JAR to use these options; the existing server
+helper forwards them without reinstalling it, and no database migration is needed.
+
 See [automatic collection](autograding.md#5-automatic-server-collection) for
 permissions, filters and status semantics, and [deployment](deployment.md#6-enable-automatic-feedback-collection)
 for the optional five-minute timer. These commands handle student feedback;

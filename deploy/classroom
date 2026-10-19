@@ -13,7 +13,7 @@ Feedback:     sync, list, show
 Examples:
   sudo classroom registration list --format table
   sudo classroom feedback sync
-  sudo classroom feedback list --lecture numerical-methods
+  sudo classroom feedback list --latest --format table --lecture numerical-methods
 
 Uses /var/lib/finmath-classroom and the installed Java 21 application.
 The Java command runs as finmath-classroom, never as root.

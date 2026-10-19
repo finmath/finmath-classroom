@@ -60,6 +60,11 @@ publish those solutions incidentally.
   Parse bounded archives without extraction, verify run correlation, and keep missing
   results distinct from a failed test with a numeric score. HTTP operations must not
   hold SQLite write transactions or forward credentials to artifact storage.
+- Latest feedback listings use the newest known run by GitHub creation time and
+  run ID, then its highest known attempt, per current enrollment. Preserve missing
+  or invalid latest results and enrollments without attempts; never replace them
+  with older scores. Listing remains local and read-only; it does not establish
+  the current branch head or a final grade.
 - Preserve rubric, feedback, manifest and final-result formats, deterministic
   scoring, duplicate/missing-test handling, bounded inputs, safe XML and formula-safe
   CSV. Numeric JSON formatting need not be byte-identical (`5` and `5.0`). Correlating
@@ -101,6 +106,7 @@ grade return are not implemented.
 | 2026-10-19: bounded repository names | New acceptances use at most 78 prefix characters, an eight-character random hex identifier, and at most 12 lowercase GitHub username characters. Names are reserved transactionally with local collision checks; existing names and full numeric identities stay intact. This requires a JAR update only, without a configuration or database migration. |
 | 2026-10-19: feedback collection | Added read-only GitHub Actions polling through `feedback sync`, offline `list`/`show`, a separate private SQLite history, and an optional five-minute systemd timer. The existing version-1 artifact format and student workflows remain compatible. Live server collection is pending deployment and a pilot. |
 | 2026-10-19: server CLI helper | Added `sudo classroom ...` for registration and feedback administration with fixed deployment paths, service-account execution and selective credential loading. Documented a personal sudo/SSH account and staged retirement of direct root SSH login. No server credentials or SSH settings were changed. |
+| 2026-10-19: feedback overview | Added `feedback list --latest --format table` for one row per current enrollment, including unavailable feedback and enrollments without stored attempts. The default remains all-history JSON; either option works separately. Requires the updated JAR, with no database migration or helper reinstall. |
 
 An instructor-account registration pilot and shared action execution were reported
 working on the public deployment. A complete learner pilot, the intended Moodle
