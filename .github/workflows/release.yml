@@ -1,0 +1,117 @@
+name: Verify and release server
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Verify Java and command-line tools
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+      - name: Verify and package
+        run: mvn -B -ntp verify
+      - name: Check packaged CLI and shell helpers offline
+        run: |
+          java -jar target/finmath-classroom.jar --help
+          java -jar target/finmath-classroom.jar registration check --data examples/registration
+          bash scripts/test-autograding.sh
+          bash scripts/test-classroom-wrapper.sh
+          bash scripts/test-classroom-update.sh
+          bash scripts/test-server-release.sh
+      - name: Prepare release assets
+        run: |
+          mkdir release
+          cp target/finmath-classroom.jar release/
+          cd release
+          sha256sum finmath-classroom.jar > finmath-classroom.jar.sha256
+      - name: Keep the verified JAR for publication
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: server-release
+          path: release/
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    name: Publish server release
+    needs: verify
+    if: >-
+      github.repository == 'finmath/finmath-classroom' &&
+      github.ref == 'refs/heads/main' &&
+      (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    # Serialize publication, without interrupting an upload already in progress.
+    concurrency:
+      group: server-release-publication
+      cancel-in-progress: false
+    steps:
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: server-release
+          path: release
+      - name: Publish the verified assets together
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd release
+          sha256sum --check --strict finmath-classroom.jar.sha256
+          release_tag="server-$RELEASE_COMMIT"
+          release_exists=false
+          if gh release view "$release_tag" --json isDraft > release-state.json; then
+            release_exists=true
+            if [[ "$(jq -r .isDraft release-state.json)" == false ]]; then
+              echo "Release $release_tag is already published; keeping its original assets."
+              exit 0
+            fi
+          fi
+
+          # A manually created tag must also identify the commit that was tested.
+          if tag_commit=$(gh api "repos/$GH_REPO/commits/$release_tag" --jq .sha 2>/dev/null); then
+            if [[ "$tag_commit" != "$RELEASE_COMMIT" ]]; then
+              echo "Release tag points to another commit; refusing publication." >&2
+              exit 1
+            fi
+          fi
+          if [[ "$release_exists" == false ]]; then
+            cat > release-notes.txt <<EOF
+          Verified server build from commit $RELEASE_COMMIT.
+
+          Download finmath-classroom.jar with finmath-classroom.jar.sha256, or run sudo classroom-update on an existing installation.
+          This publishes a server binary; production updates are manual. Student feedback action references such as v1 are unchanged.
+          EOF
+            gh release create "$release_tag" --target "$RELEASE_COMMIT" \
+              --title "Classroom server ${RELEASE_COMMIT:0:12}" \
+              --notes-file release-notes.txt --draft --latest=false
+          fi
+          # A failed upload leaves a draft. Re-running may replace draft assets only.
+          gh release upload "$release_tag" --clobber \
+            finmath-classroom.jar finmath-classroom.jar.sha256
+          # An older/slower run must not replace a newer main release as latest.
+          main_commit=$(gh api "repos/$GH_REPO/git/ref/heads/main" --jq .object.sha)
+          make_latest=false
+          if [[ "$main_commit" == "$RELEASE_COMMIT" ]]; then make_latest=true; fi
+          gh release edit "$release_tag" --target "$RELEASE_COMMIT" --draft=false --latest="$make_latest"
+          printf 'Published [%s](https://github.com/%s/releases/tag/%s). Production update remains manual.\n' \
+            "$release_tag" "$GH_REPO" "$release_tag" >> "$GITHUB_STEP_SUMMARY"
