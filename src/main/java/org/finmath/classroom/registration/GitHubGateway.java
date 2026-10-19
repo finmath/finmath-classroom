@@ -5,8 +5,13 @@ import java.io.IOException;
 /** GitHub identity and repository operations; implementations can be replaced with offline fixtures. */
 public interface GitHubGateway {
 
-	/** An account's stable numeric identity and current login. */
-	record User(long id, String login) { }
+	/** An account's stable numeric identity, current login and optional self-declared profile name. */
+	record User(long id, String login, String name) {
+		/** Creates an account without a profile-name suggestion. */
+		public User(long id, String login) {
+			this(id, login, null);
+		}
+	}
 
 	/** Repository identity and the properties needed to check ownership and template copies. */
 	record Repository(long id, String fullName, boolean privateRepository, boolean fork, boolean template, String defaultBranch) {

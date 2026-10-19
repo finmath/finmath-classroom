@@ -90,6 +90,7 @@ grade return are not implemented.
 | 2026-10-18: template migration | Added an explicit all-or-nothing Maven suite rubric, preserving existing weighted-method results; prepared pinned action references for assignment templates. |
 | 2026-10-18: central feedback updates | Switched assignment templates to the maintained `v1` action reference and added Maven `-U` to refresh SNAPSHOT checks despite dependency caching. |
 | 2026-10-19: registration diagnostics | Added error references correlated with sanitized GitHub operation/status logs, and accepted omission of the optional repository `is_template` field. Source templates still require an explicit true value; creation recovery and numeric identity checks are unchanged. |
+| 2026-10-19: name prefilling | Added editable name suggestions from the signed-in account's lecture record, falling back to its optional GitHub profile name. Verified roster preassignment and normal student acceptance; numeric identity, Moodle precedence and separate roster/accepted names remain unchanged. No database or configuration schema migration is required. |
 
 An instructor-account registration pilot was reported working. A complete learner
 pilot, the intended Moodle installation and public hosting still need validation.
@@ -187,3 +188,13 @@ existing identity/retry guards. The rebuilt JAR passed configuration validation
 and assignment-listing CLI smoke checks on Java 17. No deployment or live GitHub
 writes were performed for this change; the reported production acceptance failure
 still requires correlation with the server's saved registration and diagnostics.
+
+Name-prefilling verification on 2026-10-19: `mvn -B -ntp verify` passed all 240
+tests, with no failures, errors or skips. Coverage includes optional GitHub profile
+names, roster import without acceptance, numeric identity after a username change,
+lecture/account isolation, editable escaped suggestions, Moodle precedence and
+the browser flow through OAuth and real SQLite persistence with a fake GitHub
+adapter. The packaged JAR passed Java 17 CLI checks for configuration, assignment
+listing, disposable offline import, repeated import and student/enrollment listing.
+The private teaching configuration also passed validation. No deployment or live
+GitHub writes were performed; the new name-prefilling browser pilot is pending.

@@ -65,6 +65,42 @@ by numeric ID. Moodle identities use the signed subject, which is not necessaril
 a university student number. Account corrections and merging duplicate records
 require deliberate administrative work.
 
+### Preassigning a student and testing registration
+
+Add a GitHub username to that student's private roster entry, for example:
+
+```json
+"students": [
+  {"id": "student-001", "name": "Alex Example", "githubUsername": "alex-example"}
+]
+```
+
+`id` is your lecture's student identifier, not a GitHub ID. Import resolves
+`githubUsername` to the numeric GitHub ID and stores the binding. The configuration
+does not accept a `githubId` field. Future sign-ins match the numeric ID, including
+after a GitHub username change. If you re-import after a username change, update
+`githubUsername` first; import refuses to replace an already pinned numeric ID.
+
+For an existing service, stop it and back up its private data directory. Keep an
+existing student's ID when adding their GitHub username; do not create a second
+roster entry for the same account. Run `registration check`, `registration import`
+with the provisioning credential, and `registration students --lecture LECTURE`,
+using the service's data directory and operating-system user, then restart it.
+Import performs read-only GitHub account lookups; it does not create repositories,
+invite students or accept assignments. It preserves existing student names and
+acceptances. Removing an entry from the file does not delete its stored record.
+
+The student opens an assignment, connects that GitHub account, checks their name,
+supplies the registration keys (or uses a Moodle launch) and confirms the declaration.
+Only then is the assignment accepted and provisioned. The roster is not an allowlist:
+other authenticated accounts with the required keys can still register separately.
+
+To test, use an assignment that account has not accepted yet. Verify that the form
+prefills the roster name, then accept and compare the student ID in `registration
+list` with the roster ID. An already accepted assignment shows its saved acceptance
+instead of a new form. Avoid deleting a working acceptance merely to test prefilling;
+its GitHub repository would remain and could collide with a new registration.
+
 Import freezes organization, staff team, template, repository prefix, branch,
 deadline, and Moodle activity mapping. Use new assignment IDs and prefixes for new
 terms. Changing frozen settings requires a reviewed database migration. Titles and
@@ -178,6 +214,16 @@ both keys, and confirms the ownership/authorship declaration. Only the confirmed
 POST creates a repository. The database records acceptance time, declaration version,
 numeric account/repository IDs, repository URL and provisioning status. An optional
 deadline rejects acceptance and retries at or after the cutoff.
+
+After GitHub sign-in, the editable name field uses the name already associated
+with that numeric account in the lecture, if present. Otherwise it suggests the
+GitHub profile's optional `name`, not the login handle. Missing or unusable profile
+names leave the field blank. Other roster entries are never shown. This uses the
+existing authenticated-user lookup and requires no additional OAuth scope.
+The student reviews and confirms the name; a profile name is not verified university
+identity. The acceptance stores the submitted name without overwriting the roster
+name. A name supplied by a validated Moodle launch retains precedence and cannot
+be changed through the form.
 
 After acceptance, the page shows the saved repository and status. It no longer
 asks for a name, keys or another declaration. Eligible access failures show

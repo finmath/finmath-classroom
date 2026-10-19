@@ -292,6 +292,111 @@ class RegistrationServiceTest {
 		assertEquals(42L, ((Number)store.students(null).get(0).get("github_id")).longValue());
 	}
 
+	@Test void testPreassignedRosterWaitsForAcceptanceAndSurvivesGithubRename() throws Exception {
+		String rosterName = "Alice Instructor Roster";
+		ClassroomConfig roster = configuration(List.of(new Student("official-student", rosterName, "alice")), "template", now.plusSeconds(3600));
+		store.importConfiguration(roster, github);
+		service = new RegistrationService(roster, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		assertTrue(store.list("lecture", "exercise").isEmpty());
+		assertNull(service.enrollment("lecture", "exercise", alice));
+		assertEquals(1, store.students("lecture").size());
+		Map<String, Object> imported = store.students("lecture").get(0);
+		assertEquals("official-student", imported.get("id"));
+		assertEquals(rosterName, imported.get("name"));
+		assertEquals(42L, ((Number)imported.get("github_id")).longValue());
+		assertEquals("roster", imported.get("identity_source"));
+		assertEquals(0, github.creations);
+		assertTrue(github.operations.isEmpty());
+
+		assertThrows(IllegalArgumentException.class, () -> service.accept("lecture", "exercise", self, alice, "wrong", "assignment-secret", true));
+		assertThrows(IllegalArgumentException.class, () -> service.accept("lecture", "exercise", self, alice, "lecture-secret", "assignment-secret", false));
+		assertTrue(store.list("lecture", "exercise").isEmpty());
+		assertTrue(github.operations.isEmpty());
+
+		github.current = new User(42, "renamed-alice");
+		Enrollment enrollment = service.accept("lecture", "exercise", self, github.current, "lecture-secret", "assignment-secret", true);
+		assertEquals("official-student", enrollment.studentId());
+		assertEquals(self.name(), enrollment.name());
+		assertEquals("invitation_pending", enrollment.status());
+		assertEquals("org/term-exercise-renamed-alice-42", enrollment.repository());
+		assertEquals(1, store.students("lecture").size());
+		Map<String, Object> accepted = store.students("lecture").get(0);
+		assertEquals(rosterName, accepted.get("name"));
+		assertEquals(42L, ((Number)accepted.get("github_id")).longValue());
+		assertEquals("renamed-alice", accepted.get("github_login"));
+		assertEquals("self", accepted.get("identity_source"));
+		assertEquals("renamed-alice", github.invitedLogin);
+		assertEquals(1, github.creations);
+		assertEquals(List.of("create", "staff", "invite"), github.operations);
+	}
+
+	@Test void testDifferentAccountCannotClaimPreassignedRosterByName() throws Exception {
+		ClassroomConfig roster = configuration(List.of(new Student("official-student", self.name(), "alice")), "template", now.plusSeconds(3600));
+		store.importConfiguration(roster, github);
+		service = new RegistrationService(roster, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		github.current = new User(77, "bob");
+		Enrollment enrollment = service.accept("lecture", "exercise", new Identity("self", "77", self.name()), github.current, "lecture-secret", "assignment-secret", true);
+		assertNotEquals("official-student", enrollment.studentId());
+		assertEquals(77L, enrollment.githubId());
+		assertEquals(2, store.students("lecture").size());
+		Map<String, Object> imported = store.students("lecture").stream().filter(student -> student.get("id").equals("official-student")).findFirst().orElseThrow();
+		assertEquals(42L, ((Number)imported.get("github_id")).longValue());
+		assertEquals("alice", imported.get("github_login"));
+		assertEquals("roster", imported.get("identity_source"));
+		assertNull(service.enrollment("lecture", "exercise", alice));
+	}
+
+	@Test void testNameSuggestionUsesPinnedRosterWithoutAccepting() throws Exception {
+		ClassroomConfig roster = configuration(List.of(new Student("official-student", "Official Alice", "alice")), "template", now.plusSeconds(3600));
+		store.importConfiguration(roster, github);
+		service = new RegistrationService(roster, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		byte[] database = Files.readAllBytes(directory.resolve("classroom.db"));
+		assertEquals("Official Alice", service.suggestedName("lecture", new User(42, "renamed-alice", "Public Alice")));
+		assertTrue(store.list("lecture", "exercise").isEmpty());
+		assertEquals(1, store.students("lecture").size());
+		assertTrue(github.operations.isEmpty());
+		assertArrayEquals(database, Files.readAllBytes(directory.resolve("classroom.db")));
+	}
+
+	@Test void testNameSuggestionsAreScopedToLectureAndNumericAccount() throws Exception {
+		ClassroomConfig roster = configuration(List.of(new Student("official-student", "Official Alice", "alice")), "template", now.plusSeconds(3600));
+		Lecture other = new Lecture("other-lecture", "Other lecture", "org", "staff", "lecture-secret", List.of(), List.of(config.assignment("lecture", "exercise")));
+		ClassroomConfig lectures = new ClassroomConfig(List.of(roster.lecture("lecture"), other));
+		store.importConfiguration(lectures, github);
+		service = new RegistrationService(lectures, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		assertEquals("Public Alice", service.suggestedName("other-lecture", new User(42, "alice", "Public Alice")));
+		assertEquals("Public Bob", service.suggestedName("lecture", new User(77, "alice", "Public Bob")));
+		assertEquals("", service.suggestedName("lecture", new User(77, "alice")));
+		assertTrue(store.list(null, null).isEmpty());
+		assertEquals(1, store.students(null).size());
+	}
+
+	@Test void testNameSuggestionRetainsExistingSelfDeclaredName() throws Exception {
+		accept();
+		List<Map<String, Object>> students = store.students("lecture");
+		List<Enrollment> enrollments = store.list("lecture", "exercise");
+		assertEquals(self.name(), service.suggestedName("lecture", new User(42, "renamed-alice", "Changed profile name")));
+		assertEquals(students, store.students("lecture"));
+		assertEquals(enrollments, store.list("lecture", "exercise"));
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testNameSuggestionFallsBackToUsableProfileOrEmptyInput() throws Exception {
+		assertEquals("Public Alice", service.suggestedName("lecture", new User(42, "alice", "Public Alice")));
+		assertEquals("", service.suggestedName("lecture", alice));
+		assertEquals("", service.suggestedName("lecture", new User(42, "alice", "   ")));
+		assertEquals("", service.suggestedName("lecture", new User(42, "alice", "a".repeat(201))));
+		ClassroomConfig roster = configuration(List.of(new Student("official-student", "r".repeat(201), "alice")), "template", now.plusSeconds(3600));
+		store.importConfiguration(roster, github);
+		service = new RegistrationService(roster, store, github, Clock.fixed(now, ZoneOffset.UTC));
+		assertEquals("Public Alice", service.suggestedName("lecture", new User(42, "alice", "Public Alice")));
+		assertEquals("", service.suggestedName("lecture", alice));
+		assertThrows(IllegalArgumentException.class, () -> service.suggestedName("lecture", null));
+		assertThrows(IllegalArgumentException.class, () -> service.suggestedName("lecture", new User(0, "alice", "Public Alice")));
+		assertTrue(store.list(null, null).isEmpty());
+		assertTrue(github.operations.isEmpty());
+	}
+
 	@Test void testDuplicateNamesCreateSeparateStudents() throws Exception {
 		Enrollment first = accept();
 		github.current = new User(77, "bob");

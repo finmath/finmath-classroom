@@ -19,9 +19,12 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.Comparator;
+import java.util.List;
 import java.util.stream.Stream;
 
 import org.finmath.classroom.registration.ClassroomConfig;
+import org.finmath.classroom.registration.ClassroomConfig.Lecture;
+import org.finmath.classroom.registration.ClassroomConfig.Student;
 import org.finmath.classroom.registration.EnrollmentStore;
 import org.finmath.classroom.registration.GitHubGateway;
 import org.finmath.classroom.registration.GitHubGateway.Repository;
@@ -74,9 +77,9 @@ class RegistrationIntegrationTest {
 	}
 
 	@Test
-	void testBrowserAcceptanceCreatesAndRemembersExactlyOneRepository() throws Exception {
+	void testPreassignedStudentCanAcceptThroughGithubAndRemembersExactlyOneRepository() throws Exception {
 		MockMvc mvc = MockMvcBuilders.webAppContextSetup(context).build();
-		User account = new User(42, "alice");
+		User account = new User(42, "alice", "Alice GitHub profile");
 		when(github.authorizationUrl(anyString(), anyString(), anyString())).thenReturn("https://github.com/login/oauth/authorize");
 		when(github.authenticate(anyString(), anyString(), anyString())).thenReturn(account);
 		when(github.user("alice")).thenReturn(account);
@@ -85,6 +88,11 @@ class RegistrationIntegrationTest {
 		when(github.create("org/template", "org", "term-task-alice-42")).thenReturn(repository);
 		when(github.repository("org/term-task-alice-42")).thenReturn(repository);
 		when(github.invite("org/term-task-alice-42", "alice")).thenReturn(true);
+		Lecture lecture = ClassroomConfig.load(data).lecture("lecture");
+		store.importConfiguration(new ClassroomConfig(List.of(new Lecture(lecture.id(), lecture.title(), lecture.organization(),
+				lecture.staffTeam(), lecture.registrationKey(), List.of(new Student("roster-alice", "Alice Roster", "alice"),
+						new Student("roster-other", "Other private roster name", null)), lecture.assignments()))), github);
+		assertEquals(0, store.list(null, null).size());
 
 		mvc.perform(get("/ready")).andExpect(status().isOk()).andExpect(jsonPath("$.scope").value("registration"));
 		mvc.perform(get("/status")).andExpect(jsonPath("$.enrollmentAvailable").value(true)).andExpect(jsonPath("$.finalGradingAvailable").value(false));
@@ -100,7 +108,11 @@ class RegistrationIntegrationTest {
 		mvc.perform(get("/auth/github/callback").session(session).param("state", state.getValue()).param("code", "test-code")).andExpect(status().isSeeOther());
 		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
 				.andExpect(content().string(containsString("value='lecture-key'")))
-				.andExpect(content().string(containsString("value='assignment-key'")));
+				.andExpect(content().string(containsString("value='assignment-key'")))
+				.andExpect(content().string(containsString("name='name' value='Alice Roster'")))
+				.andExpect(content().string(not(containsString("Alice GitHub profile"))))
+				.andExpect(content().string(not(containsString("Other private roster name"))));
+		assertEquals(0, store.list(null, null).size());
 		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", csrf).param("name", "Alice Example")
 				.param("lectureKey", "lecture-key").param("assignmentKey", "assignment-key").param("declaration", "true"))
 				.andExpect(status().isSeeOther());
@@ -110,6 +122,11 @@ class RegistrationIntegrationTest {
 				.andExpect(content().string(not(containsString("name='declaration'"))))
 				.andExpect(content().string(containsString("Refresh access status")));
 		assertEquals("invitation_pending", store.list(null, null).get(0).status());
+		assertEquals("roster-alice", store.list(null, null).get(0).studentId());
+		assertEquals("Alice Example", store.list(null, null).get(0).name());
+		assertEquals(2, store.students("lecture").size());
+		assertEquals("Alice Roster", store.students("lecture").stream().filter(student -> student.get("id").equals("roster-alice"))
+				.findFirst().orElseThrow().get("name"));
 		when(github.invite(repository.fullName(), "alice")).thenReturn(false);
 		mvc.perform(post("/accept/lecture/task/retry").session(session).param("csrf", csrf))
 				.andExpect(status().isSeeOther());

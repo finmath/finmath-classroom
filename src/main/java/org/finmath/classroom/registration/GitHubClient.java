@@ -182,7 +182,11 @@ public final class GitHubClient implements GitHubGateway {
 				|| !login.matches("[A-Za-z0-9][A-Za-z0-9-]{0,38}") || !"User".equals(value.path("type").asString(""))) {
 			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
-		return new User(value.path("id").asLong(), login);
+		String name = value.path("name").isString() ? value.path("name").asString().strip() : null;
+		if(name != null && (name.isBlank() || name.length() > 200)) {
+			name = null;
+		}
+		return new User(value.path("id").asLong(), login, name);
 	}
 
 	private static Repository readRepository(JsonNode value, String expectedName, Operation operation) throws IOException {

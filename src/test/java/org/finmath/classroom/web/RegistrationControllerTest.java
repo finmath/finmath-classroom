@@ -97,7 +97,37 @@ class RegistrationControllerTest {
 				.andExpect(header().string("Content-Security-Policy", containsString("form-action 'self' https://github.com;")))
 				.andExpect(header().string("Cache-Control", "no-store"));
 		verifyNoInteractions(github);
+		verify(registration, never()).suggestedName(anyString(), any());
 		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+	}
+
+	@Test
+	void testSuggestedNameIsEscapedEditableAndOnlyTheConfirmedNameIsSubmitted() throws Exception {
+		MockHttpSession session = session();
+		User user = new User(123, "student", "GitHub profile name");
+		session.setAttribute("github", user);
+		when(registration.suggestedName("lecture", user)).thenReturn("Alex O'Connor <example>");
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("name='name' value='Alex O&#39;Connor &lt;example&gt;'")))
+				.andExpect(content().string(not(containsString("readonly"))))
+				.andExpect(content().string(not(containsString("Private roster name"))));
+		verify(registration, never()).accept(anyString(), anyString(), any(), any(), anyString(), anyString(), anyBoolean());
+		verifyNoInteractions(github);
+		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", (String) session.getAttribute("csrf"))
+				.param("name", "Alex Corrected").param("lectureKey", "lecture-key").param("assignmentKey", "assignment-key")
+				.param("declaration", "true")).andExpect(status().isSeeOther());
+		verify(registration).accept("lecture", "task", new Identity("self", "123", "Alex Corrected"), user,
+				"lecture-key", "assignment-key", true);
+	}
+
+	@Test
+	void testNoSuggestedNameLeavesRequiredFieldBlank() throws Exception {
+		MockHttpSession session = session();
+		User user = new User(123, "student");
+		session.setAttribute("github", user);
+		when(registration.suggestedName("lecture", user)).thenReturn("");
+		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
+				.andExpect(content().string(containsString("name='name' value='' autocomplete='name' maxlength='200' required")));
 	}
 
 	@Test
@@ -368,13 +398,17 @@ class RegistrationControllerTest {
 		mvc.perform(get("/lti/complete").param("state", state)).andExpect(status().isForbidden());
 		mvc.perform(get("/lti/complete").session(session).param("state", state)).andExpect(status().isSeeOther());
 		mvc.perform(get("/lti/complete").session(session).param("state", state)).andExpect(status().isForbidden());
-		session.setAttribute("github", new User(123, "student"));
+		User account = new User(123, "student", "GitHub profile name");
+		session.setAttribute("github", account);
 		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(content().string(containsString("Moodle Student")))
-				.andExpect(content().string(not(containsString("name='lectureKey'"))));
+				.andExpect(content().string(not(containsString("name='lectureKey'"))))
+				.andExpect(content().string(not(containsString("name='name'"))))
+				.andExpect(content().string(not(containsString("GitHub profile name"))));
+		verify(registration, never()).suggestedName(anyString(), any());
 		mvc.perform(post("/accept/lecture/task").session(session).param("csrf", (String) session.getAttribute("csrf"))
 				.param("name", "Impersonated").param("declaration", "true")).andExpect(status().isSeeOther());
 		verify(registration).accept("lecture", "task", new Identity("moodle:https://moodle.example", "moodle-42", "Moodle Student"),
-				new User(123, "student"), "", "", true);
+				account, "", "", true);
 	}
 
 	private MockHttpSession session() throws Exception {

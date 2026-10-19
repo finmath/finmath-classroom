@@ -273,6 +273,16 @@ public final class EnrollmentStore {
 		});
 	}
 
+	/** Returns only the name associated with this numeric account in this lecture, or null. */
+	String studentName(String lectureId, long githubId) throws IOException {
+		try(Connection connection = connect(); PreparedStatement query = prepare(connection,
+				"SELECT name FROM students WHERE lecture_id=? AND github_id=?", lectureId, githubId); ResultSet row = query.executeQuery()) {
+			return row.next() ? row.getString("name") : null;
+		} catch(SQLException exception) {
+			throw new IOException("Cannot read the student's registered name.", exception);
+		}
+	}
+
 	/** Lists imported and self-registered students, including students without an accepted assignment. */
 	public List<Map<String, Object>> students(String lectureId) throws IOException {
 		try(Connection connection = connect(); PreparedStatement query = prepare(connection, "SELECT * FROM students WHERE (? IS NULL OR lecture_id=?) ORDER BY lecture_id,name,id", lectureId, lectureId); ResultSet rows = query.executeQuery()) {

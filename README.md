@@ -17,8 +17,9 @@ trial, a local browser preview, and a first live GitHub assignment.
 1. An instructor configures a course and its assignments, including the GitHub
    organization, staff team, template repository and registration keys.
 2. A student opens the assignment URL. They identify themselves either through
-   a configured Moodle LTI 1.3 launch or by providing a self-declared name and
-   the shared course and assignment keys.
+   a configured Moodle LTI 1.3 launch or by confirming a self-declared name and
+   the shared course and assignment keys. After GitHub sign-in, the name field
+   suggests their account-linked lecture name or, if absent, their GitHub profile name.
 3. The student signs in with GitHub and confirms their account and the declaration
    about submitting their own work under the course rules.
 4. The service creates an independent private template copy in the teaching

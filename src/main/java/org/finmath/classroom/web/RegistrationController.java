@@ -123,7 +123,10 @@ public class RegistrationController {
 				if(name != null && !name.isBlank()) {
 					body.append("<p>Name supplied by Moodle: <strong>").append(escape(name)).append("</strong></p>");
 				} else {
-					body.append("<label>Your full name (self-declared)<input name='name' autocomplete='name' maxlength='200' required></label>");
+					body.append("<label>Your full name (self-declared)<input name='name' value='")
+							.append(escape(registration.suggestedName(lectureId, user)))
+							.append("' autocomplete='name' maxlength='200' required></label>")
+							.append("<p>Please check your full name before accepting.</p>");
 				}
 				if(launch == null) {
 					body.append("<label>Lecture registration key<input type='password' name='lectureKey' value='").append(escape(keys.lectureKey())).append("' required></label>")

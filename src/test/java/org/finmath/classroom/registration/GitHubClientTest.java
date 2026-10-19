@@ -146,6 +146,35 @@ class GitHubClientTest {
 		assertEquals("Bearer provisioning-secret", requests.get(2).authorization());
 	}
 
+	@Test
+	void testAuthenticatedProfileNameIsAnOptionalTrimmedSuggestion() throws IOException {
+		responses.add(new Response(200, "{\"access_token\":\"student_token\",\"token_type\":\"bearer\"}"));
+		responses.add(new Response(200, USER.replace("}", ",\"name\":\"  Christian Fries  \"}")));
+		GitHubGateway.User authenticated = github.authenticate("code", "https://classroom.example/callback", "verifier");
+		assertEquals(42, authenticated.id());
+		assertEquals("Student", authenticated.login());
+		assertEquals("Christian Fries", authenticated.name());
+		assertEquals("/user", requests.get(1).path());
+		assertEquals("Bearer student_token", requests.get(1).authorization());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"", ",\"name\":null", ",\"name\":\"\"", ",\"name\":\"   \"",
+			",\"name\":42", ",\"name\":true", ",\"name\":{}", ",\"name\":[]"})
+	void testMissingOrUnusableProfileNameDoesNotRejectAuthenticatedAccount(String nameField) throws IOException {
+		responses.add(new Response(200, "{\"access_token\":\"student_token\",\"token_type\":\"bearer\"}"));
+		responses.add(new Response(200, USER.replace("}", nameField + "}")));
+		assertEquals(new GitHubGateway.User(42, "Student"), github.authenticate("code", "https://classroom.example/callback", "verifier"));
+	}
+
+	@Test
+	void testProfileNameLengthBoundDoesNotAffectNumericIdentity() throws IOException {
+		responses.add(new Response(200, USER.replace("}", ",\"name\":\"" + "N".repeat(200) + "\"}")));
+		assertEquals("N".repeat(200), github.user("student").name());
+		responses.add(new Response(200, USER.replace("}", ",\"name\":\"" + "N".repeat(201) + "\"}")));
+		assertEquals(new GitHubGateway.User(42, "Student"), github.user("student"));
+	}
+
 	@ParameterizedTest
 	@ValueSource(ints = {301, 302, 401, 403, 404, 422, 429, 500})
 	void testFailuresNeverRetryOrExposeResponseSecrets(int status) {

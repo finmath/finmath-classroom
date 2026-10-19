@@ -49,6 +49,19 @@ public final class RegistrationService {
 	}
 
 	/**
+	 * Suggests a name for a trusted, authenticated account without creating a registration.
+	 * A stored lecture identity takes precedence over the optional GitHub profile name.
+	 * The student still supplies and confirms the name at acceptance.
+	 */
+	public String suggestedName(String lectureId, User account) throws IOException {
+		config.lecture(lectureId);
+		if(account == null || account.id() <= 0) throw new IllegalArgumentException("Connect your GitHub account first.");
+		String name = store.studentName(lectureId, account.id());
+		if(name == null || name.isBlank() || name.length() > 200) name = account.name();
+		return name == null || name.isBlank() || name.length() > 200 ? "" : name.strip();
+	}
+
+	/**
 	 * Reconciles an instructor-inspected repository after a lost creation response or process crash.
 	 * Stop the service before running this administrative operation; it never creates a repository.
 	 */
