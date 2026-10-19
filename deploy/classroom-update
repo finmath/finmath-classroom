@@ -1,0 +1,178 @@
+#!/bin/bash
+# Ubuntu 24.04 updater. Install root-owned in /usr/local/sbin/classroom-update.
+set -euo pipefail
+
+classroom_update_help() {
+    cat <<'USAGE'
+Usage: sudo classroom-update [--release server-<40-character commit SHA>]
+
+Downloads the latest public finmath/finmath-classroom release by default.
+Verifies its JAR checksum, backs up the stopped service, and checks readiness.
+Restores the previous JAR if startup fails; never imports or restores data.
+Requires curl, jq, flock and the existing Ubuntu 24.04 deployment paths.
+Backups: /var/backups/finmath-classroom (retain an off-server copy separately).
+USAGE
+}
+
+classroom_update_error() { printf 'classroom-update: %s\n' "$*" >&2; return 1; }
+
+# These adapters are replaced by offline tests after sourcing this file. The
+# executable entry uses a fixed PATH and fixed paths, without environment overrides.
+classroom_update_systemctl() { command systemctl "$@"; }
+classroom_update_download() {
+    command curl -q --fail --silent --show-error --location --proto '=https' \
+        --proto-redir '=https' --connect-timeout 15 --max-time 300 \
+        --max-filesize "$3" --output "$2" "$1"
+}
+classroom_update_install() { command install -o root -g root -m 644 -- "$1" "$2"; }
+classroom_update_private_directory() { command install -d -o root -g root -m 700 -- "$1"; }
+classroom_update_smoke() {
+    command runuser -u finmath-classroom -- /usr/lib/jvm/java-21-openjdk-amd64/bin/java \
+        -jar "$1" --help >/dev/null
+}
+classroom_update_ready() {
+    command curl -q --fail --silent --show-error --retry 30 --retry-connrefused \
+        --retry-delay 1 --connect-timeout 2 --max-time 5 \
+        http://127.0.0.1:8081/ready >/dev/null
+}
+
+classroom_update_unit_state() {
+    local state
+    if ! state=$(classroom_update_systemctl show --property=LoadState --value "$1"); then
+        [[ "$state" == not-found ]] || return 1
+    fi
+    [[ -n "$state" ]] || return 1
+    printf '%s\n' "$state"
+}
+
+# Recovery uses the original JAR and the existing data. This updater is only for
+# releases compatible with the current database schema; no automatic data rollback.
+classroom_update_recover() {
+    if [[ "$replaced" == true ]]; then
+        classroom_update_systemctl stop "$web" || return 1
+        classroom_update_install "$backup/finmath-classroom.jar" "$staged" || return 1
+        mv -f -- "$staged" "$jar" || return 1
+    fi
+    classroom_update_systemctl start "$web" || return 1
+    classroom_update_ready || return 1
+    if [[ "$timer_active" == true ]]; then
+        classroom_update_systemctl start "$timer" || return 1
+    fi
+}
+
+classroom_update_finish() {
+    local status=$1
+    trap - EXIT INT TERM
+    set +e
+    if [[ "$stopped_window" == true ]]; then
+        printf '%s\n' 'Update failed; recovering the previous application.' >&2
+        if classroom_update_recover; then
+            printf '%s\n' 'Previous application is ready; existing data retained.' >&2
+        else
+            printf 'Automatic recovery failed. Inspect journalctl -u %s and backup %s\n' "$web" "${backup:-not-created}" >&2
+        fi
+        status=1
+    fi
+    [[ -z "$staged" ]] || rm -f -- "$staged"
+    [[ -z "$work" ]] || rm -rf -- "$work"
+    exit "$status"
+}
+
+# Paths are arguments solely for source-based offline tests; main supplies constants.
+classroom_update_run() (
+    set -euo pipefail
+    umask 077
+    local requested=$1 application=$2 data=$3 backup_root=$4
+    local jar="$application/finmath-classroom.jar"
+    local web=finmath-classroom.service timer=finmath-classroom-feedback.timer
+    local collector=finmath-classroom-feedback.service
+    local work= staged= backup= stopped_window=false replaced=false timer_active=false
+    local timer_state collector_state tag url checksum actual asset
+    trap 'classroom_update_finish "$?"' EXIT
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+
+    [[ -f "$jar" && ! -L "$jar" && -d "$data" && ! -L "$data" ]] || \
+        classroom_update_error 'Existing application JAR and data directory are required.'
+    classroom_update_systemctl is-active --quiet "$web" || \
+        classroom_update_error 'The web service must be running before an update.'
+    work=$(mktemp -d "$application/.classroom-update.XXXXXXXX")
+    url=https://api.github.com/repos/finmath/finmath-classroom/releases/latest
+    if [[ -n "$requested" ]]; then
+        [[ "$requested" =~ ^server-[0-9a-f]{40}$ ]] || classroom_update_error 'Invalid release tag.'
+        url="https://api.github.com/repos/finmath/finmath-classroom/releases/tags/$requested"
+    fi
+    classroom_update_download "$url" "$work/release.json" 1048576
+    jq -e '.draft == false and .prerelease == false and (.assets | type == "array")' \
+        "$work/release.json" >/dev/null || classroom_update_error 'Expected a published stable release with assets.'
+    tag=$(jq -er '.tag_name | select(type == "string")' "$work/release.json")
+    [[ "$tag" =~ ^server-[0-9a-f]{40}$ ]] || classroom_update_error 'Release tag must be server-<full commit SHA>.'
+    [[ -z "$requested" || "$tag" == "$requested" ]] || classroom_update_error 'Release tag does not match the request.'
+    for asset in finmath-classroom.jar finmath-classroom.jar.sha256; do
+        url="https://github.com/finmath/finmath-classroom/releases/download/$tag/$asset"
+        jq -e --arg name "$asset" --arg url "$url" \
+            '[.assets[] | select(.name == $name)] | length == 1 and .[0].browser_download_url == $url and .[0].state == "uploaded"' \
+            "$work/release.json" >/dev/null || classroom_update_error "Release must contain exactly one uploaded $asset at its expected GitHub URL."
+        if [[ "$asset" == *.sha256 ]]; then
+            classroom_update_download "$url" "$work/$asset" 1024
+        else
+            classroom_update_download "$url" "$work/$asset" 268435456
+        fi
+    done
+    checksum=$(cat "$work/finmath-classroom.jar.sha256")
+    [[ "$checksum" =~ ^([0-9a-fA-F]{64})[[:blank:]][[:blank:]\*]finmath-classroom\.jar$ ]] || \
+        classroom_update_error 'Checksum must contain only the SHA-256 and finmath-classroom.jar filename.'
+    actual=$(sha256sum -- "$work/finmath-classroom.jar")
+    [[ "${actual%% *}" == "$(printf '%s' "${BASH_REMATCH[1]}" | tr 'A-F' 'a-f')" ]] || \
+        classroom_update_error 'Release JAR checksum does not match.'
+
+    staged=$(mktemp "$application/.finmath-classroom.XXXXXXXX")
+    classroom_update_install "$work/finmath-classroom.jar" "$staged"
+    classroom_update_smoke "$staged"
+    timer_state=$(classroom_update_unit_state "$timer")
+    collector_state=$(classroom_update_unit_state "$collector")
+    if [[ "$timer_state" != not-found ]] && classroom_update_systemctl is-active --quiet "$timer"; then
+        timer_active=true
+    fi
+    # Mark the recovery window before the first stop, including partial stop failures.
+    stopped_window=true
+    if [[ "$timer_state" != not-found ]]; then classroom_update_systemctl stop "$timer"; fi
+    if [[ "$collector_state" != not-found ]]; then classroom_update_systemctl stop "$collector"; fi
+    classroom_update_systemctl stop "$web"
+    classroom_update_private_directory "$backup_root"
+    backup=$(mktemp -d "$backup_root/$(date -u +%Y%m%dT%H%M%SZ)-XXXXXXXX")
+    printf 'Backup: %s\n' "$backup"
+    cp -p -- "$jar" "$backup/finmath-classroom.jar"
+    cp -a -- "$data" "$backup/data"
+    cp -- "$work/release.json" "$backup/release.json"
+    # Set before mv so a signal immediately after replacement still rolls back.
+    replaced=true
+    mv -f -- "$staged" "$jar"
+    classroom_update_systemctl start "$web"
+    classroom_update_ready
+    if [[ "$timer_active" == true ]]; then classroom_update_systemctl start "$timer"; fi
+    stopped_window=false
+    printf 'Updated to %s; application is ready. Backup: %s\n' "$tag" "$backup"
+)
+
+classroom_update_main() {
+    local release=
+    if (( $# == 1 )) && [[ "$1" == --help || "$1" == -h ]]; then classroom_update_help; return; fi
+    if (( $# == 2 )) && [[ "$1" == --release && "$2" =~ ^server-[0-9a-f]{40}$ ]]; then
+        release=$2
+    elif (( $# != 0 )); then
+        classroom_update_error 'Use classroom-update --help for supported options.' || return 2
+    fi
+    if (( EUID != 0 )); then classroom_update_error 'Run with sudo: sudo classroom-update'; return 1; fi
+    export PATH=/usr/sbin:/usr/bin:/sbin:/bin
+    umask 077
+    local dependency
+    for dependency in curl jq flock sha256sum systemctl runuser; do
+        command -v "$dependency" >/dev/null || { classroom_update_error "Required command is missing: $dependency"; return 1; }
+    done
+    exec 9>/run/finmath-classroom-update.lock
+    flock --nonblock 9 || { classroom_update_error 'Another update is already running.'; return 1; }
+    classroom_update_run "$release" /opt/finmath-classroom /var/lib/finmath-classroom /var/backups/finmath-classroom
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then classroom_update_main "$@"; fi
