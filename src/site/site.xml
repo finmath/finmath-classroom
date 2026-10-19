@@ -21,7 +21,7 @@
     <menu name="finmath classroom">
       <item name="Introduction" href="index.html" />
       <item name="Motivation" href="motivation.html" />
-      <item name="Learner demo" href="demo.html" />
+      <item name="Example assignment" href="demo.html" />
     </menu>
     <menu name="Documentation">
       <item name="Getting started" href="https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md" />

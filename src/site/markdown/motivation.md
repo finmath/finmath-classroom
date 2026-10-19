@@ -1,61 +1,57 @@
-# More time for the mathematical question
+# Motivation
 
-Programming exercises connect a mathematical method to its behavior on a
-computer. The surrounding classroom tools should make that connection easier
-to explore.
+The aim of finmath classroom is to provide a powerful, flexible and free
+alternative to GitHub Classroom for administering programming assignments.
 
-## A small lab can teach a lot
+## Background
 
-An exercise does not need to be a large software project. Implementing a
-numerical method or a computational finance experiment raises useful questions:
-Does the code match the definition? Which cases fail? How does floating-point
-arithmetic affect the result?
+The project originated from coding assignments in mathematical finance. These
+assignments use Java and JUnit tests to give students feedback on their
+implementations. GitHub Classroom provided the registration and repository setup
+for this workflow.
 
-finmath classroom supports focused practice. Learners start from an instructor's
-template, work in their own private GitHub repository, and receive feedback from
-Maven and JUnit. The next experiment is another change and test run away.
+finmath classroom is a general-purpose solution for administering programming
+assignments. Instructors define the subject and content through their own
+template repositories, instructions and tests. Registration, repository creation
+and result collection apply across subjects.
 
-## Feedback while the question is still fresh
+The retirement of GitHub Classroom prompted the development of an independent
+administration service. The existing assignment repositories and tests could
+continue to be used. See [GitHub's retirement announcement](https://github.blog/changelog/2026-08-27-github-classroom-deprecated/).
 
-A passing check can confirm one part of an approach; a failure can point to a
-missing case or mistaken assumption. Weighted test methods and whole-suite
-rubrics let an instructor choose how to structure that feedback.
+## Requirements
 
-> A test result is a reason to investigate. Change something, observe the result,
-> and explain what you learned.
+The main requirements were:
 
-The administration tools collect results into a local history, preserving the
-difference between a failed test and feedback that was never received.
+- Student registration through GitHub sign-in.
+- Private assignment repositories created from instructor templates, with access
+  for students and teaching staff.
+- Automated feedback from Maven and JUnit, with configurable test scores.
+- Automatic collection of results into a table, including previous runs.
+- Control over course configuration and stored registration data.
+- The ability to extend the service, for example with Moodle integration.
 
-## Room for exploration, including AI
+finmath classroom implements these functions in a Java application with a SQLite
+database, a web interface for registration and command-line tools for
+administration. Moodle LTI launches are supported; grade return remains planned.
 
-Students may work with or without AI tools, according to the course's rules.
-An explanation or code suggestion is a starting point for investigation.
-Students still need to inspect the implementation, choose useful test cases,
-and explain why an answer is appropriate.
+## Independent administration
 
-Quick feedback supports that conversation alongside mathematical reasoning,
-discussion with the instructor, and the course's assessment policy.
+Running the administration service on an instructor-controlled server allows its
+functionality to be adapted to the course. Course configuration, result collection
+and integrations can be developed independently of GitHub Classroom.
 
-## Administration you can understand
+GitHub continues to provide repository hosting, sign-in and Actions. Assignment
+repositories retain their own builds and Git histories. The service uses Java,
+Spring MVC and SQLite, with Maven for the build.
 
-The service uses Java, Spring MVC, SQLite, and ordinary configuration files.
-It provides a browser flow for learners and command-line tools for instructors.
-Assignment repositories retain their own builds and Git histories.
+## Further development
 
-Hosting the administration service gives a course control over its configuration
-and stored registration data. GitHub supplies repository hosting, sign-in, and
-Actions. A live installation needs the corresponding GitHub setup and a
-maintained server.
+The current implementation covers registration, repository creation and test
+feedback collection. Student workflow results are not authoritative final grades.
+Automatic submission capture and an isolated runner with instructor-controlled
+tests are planned, together with Moodle grade return.
 
-GitHub Classroom was retired on August 28, 2026. This project offers a free,
-self-hosted alternative focused on registration, private assignment repositories,
-and test feedback. See [GitHub's retirement announcement](https://github.blog/changelog/2026-08-27-github-classroom-deprecated/).
-
-## See the idea in practice
-
-The [learner demo](demo.html) follows a fictional quadratic-equation exercise
-from acceptance to feedback. To explore the implementation, read the
-[architecture notes](https://github.com/finmath/finmath-classroom/blob/main/docs/development.md)
-and [roadmap](https://github.com/finmath/finmath-classroom/blob/main/docs/roadmap.md),
-or begin with the [getting-started guide](https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md).
+See the [example assignment](demo.html),
+[development notes](https://github.com/finmath/finmath-classroom/blob/main/docs/development.md)
+and [roadmap](https://github.com/finmath/finmath-classroom/blob/main/docs/roadmap.md).

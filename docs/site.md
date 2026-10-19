@@ -1,7 +1,7 @@
 # Project site
 
 The public site at <https://www.finmath.net/finmath-classroom/> introduces the
-project, its teaching motivation and a fictional assignment-feedback demo.
+project, its motivation and an example assignment with illustrative test results.
 Operational reference documentation remains in this repository and is linked
 from the site.
 

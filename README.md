@@ -1,9 +1,11 @@
 # finmath-classroom
 
-A self-hosted Java service for running programming assignments on GitHub. Students
-accept an assignment through a web page, connect their GitHub account, and receive
-a private repository created from an instructor's template. Instructors manage
-courses, assignment settings and registrations through files and command-line tools.
+A general-purpose, self-hosted Java service for running programming assignments
+on GitHub. Instructors define their own assignments through template repositories,
+instructions and tests. Students accept an assignment through a web page, connect
+their GitHub account, and receive a private repository created from the template.
+Instructors manage courses, assignment settings and registrations through files
+and command-line tools.
 
 The project provides the registration and repository-provisioning part of a
 GitHub Classroom alternative, with shared test feedback and automatic downloading
@@ -13,7 +15,7 @@ still pending.
 **Start here:** [Getting started](GETTING_STARTED.md) walks through an offline
 trial, a local browser preview, and a first live GitHub assignment.
 The [project site](https://www.finmath.net/finmath-classroom/) introduces the
-teaching motivation and a small assignment-feedback demo.
+project motivation and an example assignment with test feedback.
 
 ## How it works
 
