@@ -19,6 +19,13 @@ project motivation and an example assignment with test feedback.
 
 ## How it works
 
+Students can enter through a direct assignment link with `lectureKey` and
+`assignmentKey` URL parameters, or through a Moodle External tool activity with
+signed `classroom_lecture` and `classroom_assignment` custom parameters. Direct
+links use registration keys and a confirmed name; Moodle launches supply the
+verified Moodle identity and released name. Both routes include GitHub sign-in
+and an acceptance declaration. Direct links require no Moodle configuration.
+
 1. An instructor configures a course and its assignments, including the GitHub
    organization, staff team, template repository and registration keys.
 2. A student opens the assignment URL. They identify themselves either through

@@ -187,7 +187,7 @@ class MoodleLaunchTest {
 
 	@ParameterizedTest
 	@CsvSource({"course-1,resource-2", "course-2,resource-3", "course-2,resource-1", "course-1,resource-3"})
-	void testLegacyDirectTargetRequiresItsConfiguredCourseAndActivity(String courseId, String resourceId) throws Exception {
+	void testMoodleTargetWithoutSelectorsRequiresItsConfiguredCourseAndActivity(String courseId, String resourceId) throws Exception {
 		claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", courseId));
 		claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", resourceId));
 		assertRejected();
@@ -203,7 +203,7 @@ class MoodleLaunchTest {
 
 	@ParameterizedTest
 	@MethodSource("incompleteMappings")
-	void testLegacyDirectLaunchWithoutSelectorsRequiresACompleteConfiguredMapping(String courseId, String resourceId) throws Exception {
+	void testMoodleLaunchWithoutSelectorsRequiresACompleteConfiguredMapping(String courseId, String resourceId) throws Exception {
 		moodle = configured(new ClassroomConfig(List.of(lecture("lecture", List.of(assignment("task", courseId, resourceId))))));
 		begin(false);
 		assertRejected();

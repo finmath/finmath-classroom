@@ -99,7 +99,8 @@ Use a new directory so the offline trial's imported settings remain separate:
 ```
 
 **Edit the configuration before importing it.** The database freezes repository
-ownership, template, naming, branch, deadline, staff team and any legacy Moodle mapping.
+ownership, template, naming, branch, deadline, staff team and any optional explicit
+Moodle activity mapping.
 
 - In `local/pilot/lectures/numerical-methods/lecture.json`, set your `organization`,
   an existing `staffTeam` slug (or `null`), and a random `registrationKey`. For a
@@ -182,13 +183,17 @@ an example student's name does not claim that row. To bind a real roster entry,
 configure its GitHub username before import. See the reference for
 [identity and recovery behavior](docs/registration.md).
 
-## 4. Share an assignment, then add Moodle integration
+## 4. Share an assignment by URL or through Moodle
 
 For other users, host the service at a public HTTPS origin and update the OAuth
 application's callback accordingly. The [Ubuntu/Plesk deployment guide](docs/deployment.md)
-provides a systemd service and the server setup steps. A normal Moodle URL resource can link to the
-assignment's `/accept/<lecture>/<assignment>` page immediately; students use the
-shared-key flow. That link does not supply trusted Moodle identity.
+provides a systemd service and the server setup steps. Choose either direct
+registration links or Moodle External tool activities. Both are supported.
+
+A direct registration link opens the assignment's `/accept/<lecture>/<assignment>`
+page. Students sign in with GitHub and confirm their name, registration keys and
+acceptance. A linked roster or GitHub profile can prefill the name. Direct links
+need no Moodle configuration and can also be shared as ordinary Moodle URLs.
 
 To prefill the keys, add `?lectureKey=LECTURE_KEY&assignmentKey=ASSIGNMENT_KEY` to
 the assignment URL, with URL-encoded values. The form remembers them through
@@ -196,8 +201,9 @@ GitHub sign-in; students still confirm acceptance. Distribute the link inside
 your course, as it contains the shared keys. See
 [prefilling registration keys](docs/registration.md#prefilling-registration-keys).
 
-Signed identity requires an LTI 1.3 External tool. Follow the
-[Moodle setup reference](docs/registration.md#moodle-launch) once the public host
+Moodle registration uses an LTI 1.3 External tool to supply verified Moodle
+identity. Follow the [Moodle setup reference](docs/registration.md#moodle-launch)
+once the public host
 and platform registration are available. Reuse one tool with the `/lti/entry`
 Tool URL, and set these custom parameters on each activity:
 

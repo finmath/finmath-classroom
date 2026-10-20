@@ -38,7 +38,7 @@ public record ClassroomConfig(List<Lecture> lectures) {
 	/** A stable local student identifier, display name, and optional preassigned GitHub username. */
 	public record Student(String id, String name, String githubUsername) { }
 
-	/** An assignment template, repository naming policy, optional cutoff and optional legacy Moodle activity mapping. */
+	/** An assignment template, repository naming policy, optional cutoff and optional explicit Moodle activity mapping. */
 	public record Assignment(String id, String title, String template, String repositoryPrefix, String branch,
 			Instant deadline, String registrationKey, String moodleCourseId, String moodleResourceId) { }
 

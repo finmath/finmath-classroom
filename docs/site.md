@@ -52,9 +52,9 @@ empty roster and a distinct repository prefix. Once the server trusts a Moodle
 deployment, an LTI 1.3 activity can launch the same assignment through the shared
 `/lti/entry` target, using the activity's `classroom_lecture` and
 `classroom_assignment` custom parameters. No per-activity IDs or server mappings
-are needed. The public link continues to supply registration keys. Import the
-configuration and restart the application before
-publishing the demo link.
+are needed. The public link uses registration keys and works independently of
+Moodle configuration. Both routes open the same assignment. Import the
+configuration and restart the application before publishing the demo link.
 Building or publishing the Maven site does not deploy the classroom configuration.
 The private deployment instructions are in `local/teaching/demo-setup.md`.
 

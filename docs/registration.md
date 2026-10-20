@@ -4,6 +4,19 @@ See [Getting started](../GETTING_STARTED.md) for a guided local trial. This refe
 covers configuration, credentials, Moodle integration and recovery. Run commands
 from the repository root after building the JAR.
 
+## Registration routes
+
+Students can register through either of these routes:
+
+| Entry | Assignment selection | Registration details |
+| --- | --- | --- |
+| Direct assignment URL | `/accept/lecture-id/assignment-id`, with optional `lectureKey` and `assignmentKey` URL parameters | GitHub sign-in, matching registration keys, and a confirmed name; a linked roster or GitHub profile can prefill the name |
+| Moodle External tool | `/lti/entry`, with signed `classroom_lecture` and `classroom_assignment` custom parameters | GitHub sign-in and the Moodle identity and released name; registration keys are not required |
+
+Both routes are supported. A direct assignment URL needs no Moodle configuration
+or activity mapping, including when shared as a normal link inside Moodle.
+Students confirm acceptance before either route provisions a repository.
+
 ## Data and configuration
 
 Copy [examples/registration](../examples/registration) into a private service directory
@@ -33,9 +46,9 @@ Both keys must be supplied for standalone registration. Omitting either key or
 setting it to `null` disables that route. Replace example keys with independently
 generated random values. Moodle activities select an existing assignment through
 signed custom parameters; no Moodle course or activity IDs are needed in these
-files. The optional `moodleCourseId` and `moodleResourceId` fields are retained for
-legacy assignment-specific launches, as described below. Use a separate disposable
-data directory for experiments.
+files. The optional `moodleCourseId` and `moodleResourceId` fields configure explicit
+activity mapping of assignment-specific Moodle launches, as described below. Use
+a separate disposable data directory for experiments.
 
 ```sh
 java -jar target/finmath-classroom.jar registration check --data /private/service/classroom
@@ -50,8 +63,9 @@ java -jar target/finmath-classroom.jar registration list --data /private/service
 existing database read-only and emit private administrative JSON. Add `--format table`
 to `list` for a readable table with the student IDs used by administrative commands.
 Listings omit keys.
-Edit organization, template, staff team, branch, prefix, deadline and any legacy
-Moodle mapping **before the first import**: these values are frozen in the database.
+Edit organization, template, staff team, branch, prefix, deadline and any optional
+explicit Moodle activity mapping **before the first import**: these values are
+frozen in the database.
 
 `import` creates Java SQLite schema version 1 and pins supplied usernames to numeric
 GitHub IDs using read-only API calls. A roster without GitHub usernames imports offline.
@@ -103,10 +117,10 @@ instead of a new form. Avoid deleting a working acceptance merely to test prefil
 its GitHub repository would remain and could collide with a new registration.
 
 Import freezes organization, staff team, template, repository prefix, branch,
-deadline, and any legacy Moodle activity mapping. Use new assignment IDs and
-prefixes for new terms. Changing frozen settings requires a reviewed database
-migration. Titles and keys can change without reassigning ownership; restart the
-server to reload them.
+deadline, and any optional explicit Moodle activity mapping. Use new assignment
+IDs and prefixes for new terms. Changing frozen settings requires a reviewed
+database migration. Titles and keys can change without reassigning ownership;
+restart the server to reload them.
 
 ## Server configuration
 
@@ -351,20 +365,22 @@ Moodle tool can select any configured classroom assignment. Registration keys
 protect standalone entry and are not required for these signed launches.
 
 Students click the named External tool activity, receive their Moodle-verified
-identity and released name,
-then connect GitHub and confirm acceptance without registration keys. The released
-name cannot be changed through the acceptance form; if Moodle omits it, the form
-asks for a self-declared name. Pilot with a learner account: an instructor-only
+identity and released name, then connect GitHub and confirm acceptance without
+registration keys. The released name cannot be changed through the acceptance
+form; if Moodle omits it, the form asks for a self-declared name. Pilot with a
+learner account: an instructor-only
 launch is rejected. Tests use local fixtures; validate your own Moodle deployment
 and its privacy/registration settings in a pilot.
 See also [Moodle External tools](https://docs.moodle.org/502/en/LTI_External_tools).
 
-Legacy activities whose target is `/accept/lecture-id/assignment-id` and which
-omit both custom selectors remain supported. Only this route requires
-`moodleCourseId` and `moodleResourceId` together in `assignment.json` and matches
-the signed course context and resource-link IDs against them. These legacy fields
-remain frozen at import and do not restrict launches with explicit signed
-selectors. Prefer the shared tool URL and custom parameters for new activities.
+An assignment-specific Moodle Tool URL, `/accept/lecture-id/assignment-id`, is
+also supported. When a signed launch to that target omits both custom selectors,
+configure `moodleCourseId` and `moodleResourceId` together in `assignment.json`.
+The service matches the signed course context and resource-link IDs against this
+explicit activity mapping. These optional fields are frozen at import and do not
+restrict launches with explicit signed selectors. This mapping applies only to
+Moodle LTI launches without selectors; direct links with registration keys need
+no such fields.
 
 ## Recovery
 

@@ -62,10 +62,12 @@ publish those solutions incidentally.
   boundary still apply. Activity editors authorized for that trusted tool can select
   any configured assignment; standalone registration keys do not constrain these
   signed launches. Preserve paired, frozen `moodleCourseId` and
-  `moodleResourceId` only for legacy direct launches without either custom selector;
-  the shared route needs no configuration migration. A Moodle launch establishes
-  identity and any released name; students must still sign in to GitHub and confirm
-  acceptance before provisioning.
+  `moodleResourceId` for optional explicit activity mapping of assignment-specific
+  Moodle launches without either custom selector. Standalone assignment URLs with
+  registration-key parameters require no Moodle mapping and are supported
+  alongside Moodle launches. The shared route needs no configuration migration.
+  A Moodle launch establishes identity and any released name; students must still
+  sign in to GitHub and confirm acceptance before provisioning.
 - Feedback from student-controlled workflows, POMs, tests or reports is untrusted.
   Final grading requires trusted tests/build configuration and an isolated runner.
   Never execute student code in the administration process or with its credentials.
@@ -118,7 +120,7 @@ grade return are not implemented.
 | 2026-10-19 | Added read-only GitHub feedback collection, a separate private history database, a systemd timer, and latest-result tables. Added rate-limit deferral and repository-level resumption. |
 | 2026-10-19 | Added Ubuntu/Plesk deployment examples, CLI and release-update helpers, verified JAR publication, and clearer registration actions. |
 | 2026-10-19 | Separated reusable documentation from private operator notes and added a Maven project site with GitHub Pages publication. |
-| 2026-10-20 | Added shared Moodle tool entry routing through signed per-activity custom parameters, without per-activity server mappings. Legacy assignment-specific launches retain their frozen course/resource mappings. |
+| 2026-10-20 | Added shared Moodle tool entry routing through signed per-activity custom parameters, without per-activity server mappings. Standalone assignment links and assignment-specific Moodle launches with explicit course/resource mappings are also supported. |
 
 The [README capability table](../README.md#what-is-available) describes the current
 implementation. The [roadmap](roadmap.md) covers source snapshots, authoritative

@@ -138,11 +138,11 @@ public final class MoodleLaunch {
 				boolean targetMatches = sharedTarget || target(lecture.id(), assignment.id()).equals(login.target());
 				boolean selectorMatches = !selectByCustom
 						|| lecture.id().equals(selectedLecture) && assignment.id().equals(selectedAssignment);
-				// Signed selectors authorize routing within the trusted deployment. Frozen
-				// activity mappings remain supported for older direct launches without selectors.
-				boolean legacyMappingMatches = assignment.moodleCourseId() != null && assignment.moodleCourseId().equals(courseId)
+				// Signed selectors authorize routing within the trusted deployment. Explicit
+				// activity mappings select assignments for Moodle launches without selectors.
+				boolean activityMappingMatches = assignment.moodleCourseId() != null && assignment.moodleCourseId().equals(courseId)
 						&& resourceId.equals(assignment.moodleResourceId());
-				if(targetMatches && selectorMatches && (selectByCustom || legacyMappingMatches)) {
+				if(targetMatches && selectorMatches && (selectByCustom || activityMappingMatches)) {
 					String name = jwt.getClaimAsString("name");
 					launch = new Launch(lecture.id(), assignment.id(), new Identity("moodle:" + issuer, jwt.getSubject(), name));
 				}

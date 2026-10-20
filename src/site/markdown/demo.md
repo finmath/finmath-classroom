@@ -19,6 +19,10 @@ Its registration link is available to anyone visiting this page.
 
 The student opens the course's assignment page, signs in with GitHub, confirms
 the required registration details and accepts the declaration.
+Direct links supply the registration keys through URL parameters and let the
+student confirm their name. Moodle External tool activities supply a signed
+Moodle identity and released name through the integration described below.
+Both routes open this assignment; direct links work independently of Moodle.
 
 ![Assignment page with the Connect GitHub account button](images/demo-registration.png)
 
@@ -114,7 +118,7 @@ when name sharing is enabled, their name. The student connects a GitHub account
 and confirms acceptance without entering registration keys. An existing acceptance
 for that GitHub account shows its saved repository instead.
 
-The public registration link above remains available alongside Moodle launches.
+The public registration link above and Moodle launches are both supported.
 See the [Moodle setup reference](https://github.com/finmath/finmath-classroom/blob/main/docs/registration.md#moodle-launch)
 for configuration and learner-account testing.
 
