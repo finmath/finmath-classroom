@@ -118,7 +118,7 @@ public class RegistrationController {
 							.append("</button></form>");
 				}
 			} else {
-				body.append("<form method='post' action='").append(path).append("'>").append(hidden("csrf", csrf));
+				body.append("<form method='post' action='").append(path).append("' autocomplete='off'>").append(hidden("csrf", csrf));
 				String name = launch == null ? null : launch.identity().name();
 				if(name != null && !name.isBlank()) {
 					body.append("<p>Name supplied by Moodle: <strong>").append(escape(name)).append("</strong></p>");
@@ -129,8 +129,10 @@ public class RegistrationController {
 							.append("<p>Please check your full name before accepting.</p>");
 				}
 				if(launch == null) {
-					body.append("<label>Lecture registration key<input type='password' name='lectureKey' value='").append(escape(keys.lectureKey())).append("' required></label>")
-							.append("<label>Assignment registration key<input type='password' name='assignmentKey' value='").append(escape(keys.assignmentKey())).append("' required></label>");
+					body.append("<label>Lecture registration key<input type='text' name='lectureKey' value='").append(escape(keys.lectureKey()))
+							.append("' autocomplete='off' autocapitalize='none' autocorrect='off' spellcheck='false' maxlength='1024' required></label>")
+							.append("<label>Assignment registration key<input type='text' name='assignmentKey' value='").append(escape(keys.assignmentKey()))
+							.append("' autocomplete='off' autocapitalize='none' autocorrect='off' spellcheck='false' maxlength='1024' required></label>");
 				}
 				body.append("<label><input type='checkbox' name='declaration' value='true' required> ")
 						.append(escape(RegistrationService.DECLARATION)).append("</label><button class='button-affirmative'>Accept assignment</button></form>");

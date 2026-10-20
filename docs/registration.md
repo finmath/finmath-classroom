@@ -268,6 +268,12 @@ the configuration, and students must confirm their account and declaration.
 Share these links through your course's Moodle page: they contain the shared
 registration keys. The original URL may remain in browser history or proxy logs.
 
+The form presents registration keys as visible text fields with autocomplete,
+capitalization, autocorrection and spellchecking disabled. They are shared course
+codes, rather than account passwords. The page does not mark these codes as login
+passwords; browser or password-manager settings can still override autocomplete preferences. Link
+prefilling continues to use the assignment-specific server session.
+
 ### Hosting
 
 For Ubuntu with Plesk, use the [deployment guide](deployment.md) and its systemd

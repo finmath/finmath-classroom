@@ -166,8 +166,9 @@ class RegistrationControllerTest {
 		assertEquals(challenge.getValue(), Base64.getUrlEncoder().withoutPadding().encodeToString(
 				MessageDigest.getInstance("SHA-256").digest(verifier.getValue().getBytes(StandardCharsets.US_ASCII))));
 		mvc.perform(get("/accept/lecture/task").session(session)).andExpect(status().isOk())
-				.andExpect(content().string(containsString("name='lectureKey' value='url-lecture-key'")))
-				.andExpect(content().string(containsString("name='assignmentKey' value='url-assignment-key'")));
+				.andExpect(content().string(containsString("type='text' name='lectureKey' value='url-lecture-key' autocomplete='off'")))
+				.andExpect(content().string(containsString("type='text' name='assignmentKey' value='url-assignment-key' autocomplete='off'")))
+				.andExpect(content().string(not(containsString("type='password'"))));
 		mvc.perform(get("/auth/github/callback").session(session).param("state", state.getValue()).param("code", "code"))
 				.andExpect(status().isForbidden());
 	}
