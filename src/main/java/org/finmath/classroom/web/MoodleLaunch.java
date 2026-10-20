@@ -21,6 +21,7 @@ import org.springframework.web.util.UriComponentsBuilder;
 /** Optional LTI 1.3 resource launches from one explicitly trusted Moodle deployment. */
 public final class MoodleLaunch {
 	static final String CLAIM = "https://purl.imsglobal.org/spec/lti/claim/";
+	static final String ENTRY_PATH = "/lti/entry";
 	private final ClassroomConfig config;
 	private final String publicUrl;
 	private final String issuer;
@@ -49,13 +50,15 @@ public final class MoodleLaunch {
 		this.decoder = decoder;
 	}
 
-	/** Begin an OIDC login; target links must identify an assignment in our configuration. */
+	/** Begin OIDC login for the shared tool entry or a configured direct assignment target. */
 	public synchronized Login login(String platformIssuer, String platformClientId, String loginHint, String messageHint, String target) {
 		if(!issuer.equals(platformIssuer) || (platformClientId != null && !clientId.equals(platformClientId)) || loginHint == null || loginHint.isBlank()) {
 			throw new IllegalArgumentException("Unrecognized Moodle login");
 		}
+		boolean sharedTarget = (publicUrl + ENTRY_PATH).equals(target);
 		boolean knownTarget = config.lectures().stream().anyMatch(lecture -> lecture.assignments().stream()
-				.anyMatch(assignment -> assignment.moodleCourseId() != null && target(lecture.id(), assignment.id()).equals(target)));
+				.anyMatch(assignment -> assignment.moodleCourseId() != null && assignment.moodleResourceId() != null
+						&& (sharedTarget || target(lecture.id(), assignment.id()).equals(target))));
 		if(!knownTarget) {
 			throw new IllegalArgumentException("Moodle target is not configured for an assignment");
 		}
@@ -116,10 +119,26 @@ public final class MoodleLaunch {
 		}
 		Map<String, Object> context = jwt.getClaimAsMap(CLAIM + "context");
 		Map<String, Object> resource = jwt.getClaimAsMap(CLAIM + "resource_link");
+		boolean sharedTarget = (publicUrl + ENTRY_PATH).equals(login.target());
+		Object rawCustom = jwt.getClaims().get(CLAIM + "custom");
+		if(jwt.getClaims().containsKey(CLAIM + "custom") && !(rawCustom instanceof Map<?, ?>)) {
+			throw new IllegalArgumentException("Invalid Moodle custom parameters.");
+		}
+		Map<?, ?> custom = rawCustom instanceof Map<?, ?> values ? values : Map.of();
+		boolean hasSelector = custom.containsKey("classroom_lecture") || custom.containsKey("classroom_assignment");
+		Object selectedLecture = custom.get("classroom_lecture");
+		Object selectedAssignment = custom.get("classroom_assignment");
+		if((sharedTarget || hasSelector) && (!(selectedLecture instanceof String lectureId) || lectureId.isBlank()
+				|| !(selectedAssignment instanceof String assignmentId) || assignmentId.isBlank())) {
+			throw new IllegalArgumentException("Moodle launch must supply classroom_lecture and classroom_assignment as custom parameters.");
+		}
 		Launch launch = null;
 		for(Lecture lecture : config.lectures()) {
 			for(Assignment assignment : lecture.assignments()) {
-				if(target(lecture.id(), assignment.id()).equals(login.target()) && context != null && resource != null
+				boolean targetMatches = sharedTarget || target(lecture.id(), assignment.id()).equals(login.target());
+				boolean selectorMatches = !(sharedTarget || hasSelector)
+						|| lecture.id().equals(selectedLecture) && assignment.id().equals(selectedAssignment);
+				if(targetMatches && selectorMatches && context != null && resource != null
 						&& assignment.moodleCourseId() != null && assignment.moodleCourseId().equals(context.get("id"))
 						&& assignment.moodleResourceId().equals(resource.get("id"))) {
 					String name = jwt.getClaimAsString("name");

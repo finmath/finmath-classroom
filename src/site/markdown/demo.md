@@ -86,5 +86,36 @@ describes collection and administration.
 
 ![Automatic workflow after a push to the repo](images/finmath-classroom-action-example.png)
 
+## Moodle integration
+
+The same demo assignment can also be used to test Moodle integration. Register
+one reusable LTI 1.3 External tool with this Tool URL:
+
+[Shared Moodle entry](https://classroom.finmath.net/lti/entry)
+
+Each Moodle activity uses that tool and selects its assignment through the
+**Custom parameters** field. For this demo, enter these two lines:
+
+```text
+classroom_lecture=numerical-methods-demo
+classroom_assignment=quadratic-equation-demo
+```
+
+Other activities use their own lecture and assignment IDs with the same tool
+registration. Students click the named activity on their Moodle course page.
+
+The classroom server must first be configured to trust the Moodle deployment and
+map its course and activity to this assignment. A normal Moodle URL link does not
+supply a verified identity.
+
+For a new acceptance, a signed launch supplies the student's Moodle identity and,
+when name sharing is enabled, their name. The student connects a GitHub account
+and confirms acceptance without entering registration keys. An existing acceptance
+for that GitHub account shows its saved repository instead.
+
+The public registration link above remains available alongside Moodle launches.
+See the [Moodle setup reference](https://github.com/finmath/finmath-classroom/blob/main/docs/registration.md#moodle-launch)
+for configuration and learner-account testing.
+
 The [getting-started guide](https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md)
 covers the application build, example configuration and setup of a live assignment.

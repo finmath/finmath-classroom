@@ -303,26 +303,59 @@ not synchronize the full roster or return grades.
 | `CLASSROOM_MOODLE_AUTH_URL` | Platform OIDC authorization endpoint |
 | `CLASSROOM_MOODLE_JWKS_URL` | Platform public signing-key endpoint |
 
-At the service's public HTTPS origin, register `/lti/login` as the OIDC initiation
-URL and `/lti/launch` as the redirect URI. Set the activity target to its `/accept/...`
-URL. Configure launch-only use, with deep linking and grade/roster services disabled.
+Register one reusable tool at the service's public HTTPS origin:
+
+| Moodle setting | Example value |
+| --- | --- |
+| Tool URL | `https://assignments.example.edu/lti/entry` |
+| Initiate login URL | `https://assignments.example.edu/lti/login` |
+| Redirection URI | `https://assignments.example.edu/lti/launch` |
+
+Use that same tool, client ID and deployment ID for the course's External tool
+activities. Configure launch-only use, with deep linking and grade/roster services
+disabled. Set **Share launcher's name with the tool** to **Always** and
+**Default launch container** to **New window**.
 For Moodle's public-key setting, select RSA key and leave the tool key blank: this
 inbound-only flow does not sign tool requests. The platform signing-key endpoint
 is still required. See Moodle's [tool configuration form](https://github.com/moodle/moodle/blob/MOODLE_501_STABLE/public/mod/lti/edit_form.php).
+
+Create a named **External tool** activity for each assignment and select the
+registered tool. In the activity's **Custom parameters**, enter exactly these two
+lines, replacing the values with the lecture and assignment folder IDs:
+
+```text
+classroom_lecture=lecture-id
+classroom_assignment=assignment-id
+```
+
+Moodle sends these selectors in the signed LTI
+[custom claim](https://github.com/moodle/moodle/blob/MOODLE_501_STABLE/public/mod/lti/locallib.php).
+They are assignment selectors, not registration keys, and do not belong in the
+Tool URL's query string.
+Each activity can select a different assignment while reusing `/lti/entry` and the
+same tool registration. Existing activities whose target is an assignment-specific
+`/accept/lecture-id/assignment-id` URL remain supported.
 
 Before import, set `moodleCourseId` and `moodleResourceId` to the actual signed
 context and resource-link IDs for that activity; do not assume browser URL numbers
 are these identifiers. Ask the Moodle administrator for the activity's resource-link
 ID; it differs from the course-module ID in an activity URL, as shown in Moodle's
 [launch construction](https://github.com/moodle/moodle/blob/MOODLE_501_STABLE/public/mod/lti/locallib.php).
-Configure Moodle to release a name if desired; otherwise the form asks for a
-self-declared name.
+Both values must be supplied together and are frozen at import. The custom
+parameters select the assignment; they do not replace its signed course/activity
+checks. Adding or changing a mapping on an imported assignment requires a reviewed
+migration or a new assignment ID and repository prefix. The service still trusts
+one configured Moodle issuer, client ID and deployment ID.
 
 Launch validation checks signature, issuer, audience, deployment, timestamps,
-nonce, browser state, learner role, and mapped course/activity. Students then connect
-GitHub and confirm acceptance without registration keys. Pilot with a learner account:
-an instructor-only launch is rejected. Tests use local fixtures; validate your
-own Moodle deployment and its privacy/registration settings in a pilot.
+nonce, browser state, learner role, and mapped course/activity. For `/lti/entry`,
+the assignment comes from the verified custom claim. Students click the named
+External tool activity, receive their Moodle-verified identity and released name,
+then connect GitHub and confirm acceptance without registration keys. The released
+name cannot be changed through the acceptance form; if Moodle omits it, the form
+asks for a self-declared name. Pilot with a learner account: an instructor-only
+launch is rejected. Tests use local fixtures; validate your own Moodle deployment
+and its privacy/registration settings in a pilot.
 See also [Moodle External tools](https://docs.moodle.org/502/en/LTI_External_tools).
 
 ## Recovery

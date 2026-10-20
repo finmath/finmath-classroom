@@ -219,6 +219,11 @@ public class RegistrationController {
 		return redirect(URI.create("/accept/" + lectureId + "/" + assignmentId));
 	}
 
+	@GetMapping(MoodleLaunch.ENTRY_PATH)
+	public ResponseEntity<String> moodleEntry() {
+		return page(HttpStatus.BAD_REQUEST, "Open this assignment in Moodle", "<p>Open the External tool activity on your Moodle course page.</p>");
+	}
+
 	@RequestMapping(value = "/lti/login", method = { RequestMethod.GET, RequestMethod.POST })
 	public ResponseEntity<Void> moodleLogin(@RequestParam String iss, @RequestParam(name = "client_id", required = false) String clientId,
 			@RequestParam(name = "login_hint") String loginHint, @RequestParam(name = "lti_message_hint", required = false) String messageHint,

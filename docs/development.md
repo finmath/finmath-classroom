@@ -51,6 +51,16 @@ publish those solutions incidentally.
 - Enrollment listings retain the name supplied at acceptance; the student listing
   retains the roster name. Account names and repository URLs can change, but stored
   numeric identities and existing repository names remain stable.
+- Moodle routing is additive: one registered `/lti/entry` Tool URL serves activities
+  selected by `classroom_lecture` and `classroom_assignment` in the verified LTI
+  custom claim. Keep `/lti/login` for OIDC initiation and `/lti/launch` for its
+  callback, and preserve assignment-specific `/accept/...` launches and standalone
+  key registration. Custom selectors do not replace JWT, state, nonce, learner-role
+  or frozen course/resource validation. Require `moodleCourseId` and
+  `moodleResourceId` together before import; adding or changing an imported mapping
+  requires a reviewed migration. Keep the single trusted issuer/client/deployment
+  boundary. A Moodle launch establishes identity and any released name; students
+  must still sign in to GitHub and confirm acceptance before provisioning.
 - Feedback from student-controlled workflows, POMs, tests or reports is untrusted.
   Final grading requires trusted tests/build configuration and an isolated runner.
   Never execute student code in the administration process or with its credentials.
@@ -103,6 +113,7 @@ grade return are not implemented.
 | 2026-10-19 | Added read-only GitHub feedback collection, a separate private history database, a systemd timer, and latest-result tables. Added rate-limit deferral and repository-level resumption. |
 | 2026-10-19 | Added Ubuntu/Plesk deployment examples, CLI and release-update helpers, verified JAR publication, and clearer registration actions. |
 | 2026-10-19 | Separated reusable documentation from private operator notes and added a Maven project site with GitHub Pages publication. |
+| 2026-10-20 | Added shared Moodle tool entry routing through signed per-activity custom parameters. Existing assignment-specific launches and frozen course/resource mappings remain supported. |
 
 The [README capability table](../README.md#what-is-available) describes the current
 implementation. The [roadmap](roadmap.md) covers source snapshots, authoritative
