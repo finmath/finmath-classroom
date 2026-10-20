@@ -154,6 +154,24 @@ public final class EnrollmentStore {
 		}
 	}
 
+	/** Records confirmed student write access only while the observed invitation is still unchanged and idle. */
+	public boolean activateInvitation(Enrollment expected) throws IOException {
+		Objects.requireNonNull(expected);
+		if(!"invitation_pending".equals(expected.status()) || expected.repositoryId() == null
+				|| expected.repositoryId() <= 0 || expected.githubId() <= 0) {
+			return false;
+		}
+		return transaction(connection -> execute(connection, """
+				UPDATE enrollments SET status='active',problem=NULL
+				WHERE lecture_id=? AND assignment_id=? AND student_id=?
+				  AND status='invitation_pending' AND busy=0
+				  AND repository_id=? AND repository=? AND accepted_at=? AND identity_source=?
+				  AND EXISTS (SELECT 1 FROM students s
+				              WHERE s.lecture_id=enrollments.lecture_id AND s.id=enrollments.student_id AND s.github_id=?)
+				""", expected.lectureId(), expected.assignmentId(), expected.studentId(), expected.repositoryId(),
+				expected.repository(), expected.acceptedAt(), expected.identitySource(), expected.githubId()) == 1);
+	}
+
 	private static String definition(Lecture lecture, Assignment assignment) {
 		return JsonFiles.MAPPER.writeValueAsString(List.of(lecture.organization(), Objects.toString(lecture.staffTeam(), ""),
 				assignment.template(), assignment.repositoryPrefix(), assignment.branch(), Objects.toString(assignment.deadline(), ""),

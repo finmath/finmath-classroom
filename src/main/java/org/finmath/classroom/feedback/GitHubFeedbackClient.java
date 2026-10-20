@@ -27,7 +27,7 @@ import org.finmath.classroom.io.JsonFiles;
 
 import tools.jackson.databind.JsonNode;
 
-/** Bounded, read-only GitHub.com Actions adapter. Never executes repository code. */
+/** Bounded, read-only GitHub.com repository and Actions adapter. Never executes repository code. */
 public final class GitHubFeedbackClient implements FeedbackSource {
     private static final URI GITHUB_API = URI.create("https://api.github.com/");
     private static final Duration TIMEOUT = Duration.ofSeconds(30);
@@ -65,6 +65,26 @@ public final class GitHubFeedbackClient implements FeedbackSource {
         String actualName = text(value, "full_name", 140);
         if (!actualName.equalsIgnoreCase(name)) throw invalidMetadata();
         return new Repository(positive(value, "id"), actualName, bool(value, "private"), bool(value, "fork"));
+    }
+
+    @Override
+    public Access access(String repository, String login) throws IOException {
+        String name = repositoryPath(repository);
+        if (!accountName(login)) throw new IllegalArgumentException("Invalid GitHub account name");
+        HttpResponse<byte[]> response;
+        try {
+            response = api("repos/" + name + "/collaborators/" + login + "/permission", 200);
+        } catch (Failure failure) {
+            if (failure.status() == 404) return null;
+            throw failure;
+        }
+        JsonNode value = json(response);
+        JsonNode user = value.path("user");
+        String actualLogin = text(user, "login", 39);
+        String permission = text(value, "permission", 5);
+        if (!accountName(actualLogin) || !actualLogin.equalsIgnoreCase(login)
+                || !Set.of("admin", "write", "read", "none").contains(permission)) throw invalidMetadata();
+        return new Access(positive(user, "id"), actualLogin, permission);
     }
 
     @Override
@@ -360,6 +380,10 @@ public final class GitHubFeedbackClient implements FeedbackSource {
             throw new IllegalArgumentException("Invalid GitHub repository name; expected owner/name");
         }
         return repository;
+    }
+
+    private static boolean accountName(String login) {
+        return login != null && login.length() <= 39 && login.matches("[A-Za-z0-9]+(?:-[A-Za-z0-9]+)*");
     }
 
     private static void requireId(long id) {

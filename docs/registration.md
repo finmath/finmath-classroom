@@ -414,6 +414,8 @@ java -jar target/finmath-classroom.jar registration list \
 | No registration | Inspect the sign-in/account lookup or local storage failure. |
 | `retryable`, no repository ID | Inspect the template lookup and preflight checks. |
 | `retryable`, recorded repository ID | Inspect repository lookup, staff access and student invitation; retry reuses the recorded repository. |
+| `invitation_pending` | Awaiting confirmed write access; refreshed by `feedback sync`. |
+| `active` | Repository write access confirmed at the last status update. |
 | `needs_attention` or persistent `creating` | Inspect the expected repository and numeric identity before reconciliation; creation may already have succeeded. |
 
 Preserve the failed registration while investigating. A repository with the

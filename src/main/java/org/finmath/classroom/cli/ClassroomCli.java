@@ -164,7 +164,9 @@ public final class ClassroomCli {
             if (lecture == null) throw new IllegalArgumentException("--assignment requires --lecture");
             config.assignment(lecture, assignment);
         }
-        EnrollmentStore enrollments = EnrollmentStore.readOnly(data.resolve("classroom.db"));
+        EnrollmentStore enrollments = args[0].equals("sync")
+                ? new EnrollmentStore(data.resolve("classroom.db"), false)
+                : EnrollmentStore.readOnly(data.resolve("classroom.db"));
         enrollments.verifyConfiguration(config);
         if (args[0].equals("sync")) {
             String workflow = options.getOrDefault("--workflow", System.getenv().getOrDefault("CLASSROOM_FEEDBACK_WORKFLOW", "classroom.yml"));

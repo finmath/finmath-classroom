@@ -309,9 +309,9 @@ repositories. The server uses GitHub's read-only APIs to download feedback; it
 does not check out repositories, execute student code or run Maven.
 
 Use the imported registration data directory and a server credential with
-**Actions: read** access to the enrolled private repositories. Set
-`CLASSROOM_FEEDBACK_TOKEN` for a dedicated credential; when unset or blank, the
-collector uses `CLASSROOM_GITHUB_TOKEN`, which must have that permission too.
+**Actions: read** and **Metadata: read** access to the enrolled private repositories.
+Set `CLASSROOM_FEEDBACK_TOKEN` for a dedicated credential; when unset or blank, the
+collector uses `CLASSROOM_GITHUB_TOKEN`, which must have those permissions too.
 Keep credentials in the private service environment file described in the
 [deployment guide](deployment.md). GitHub documents access requirements in its
 [artifact API](https://docs.github.com/en/rest/actions/artifacts).
@@ -349,6 +349,8 @@ to synchronize or list all enrolled repositories; `--assignment` requires
 `CLASSROOM_FEEDBACK_WORKFLOW` or, for one synchronization, `--workflow feedback.yml`.
 Use scoped synchronizations when assignments have different workflow filenames.
 `list` and `show` read local data without credentials or network access.
+`sync` also changes `invitation_pending` to `active` when GitHub confirms student
+write access, updating the existing registration database.
 
 For the same listing with the installed server helper, run:
 

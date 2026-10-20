@@ -263,9 +263,10 @@ no registration import or student workflow change is required for this feature.
 Results remain untrusted student feedback, separate from final grades.
 
 The credential needs **Actions: read** access to the enrolled private student
-repositories and repository metadata. Set `CLASSROOM_FEEDBACK_TOKEN` in the private
-environment file for a dedicated read-only credential, or grant that additional
-read permission to the existing `CLASSROOM_GITHUB_TOKEN` used as fallback. The
+repositories and **Metadata: read** for repository and collaborator-permission
+checks. Set `CLASSROOM_FEEDBACK_TOKEN` in the private environment file for a
+dedicated read-only credential, or grant that additional read permission to the
+existing `CLASSROOM_GITHUB_TOKEN` used as fallback. The
 student OAuth token is not used. Token renewal is still the operator's responsibility.
 See [GitHub artifact permissions](https://docs.github.com/en/rest/actions/artifacts).
 

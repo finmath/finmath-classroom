@@ -71,8 +71,9 @@ publish those solutions incidentally.
 - Feedback from student-controlled workflows, POMs, tests or reports is untrusted.
   Final grading requires trusted tests/build configuration and an isolated runner.
   Never execute student code in the administration process or with its credentials.
-- Feedback collection uses a separate `feedback.db` schema version 1. It reads the
-  existing registration database without migrating it. Received results are immutable
+- Feedback collection uses a separate `feedback.db` schema version 1. It may update
+  confirmed invitation status in the existing registration database without
+  migrating it. Listings remain read-only. Received results are immutable
   per numeric repository ID, run ID and attempt; failures cannot erase a result.
   Parse bounded archives without extraction, verify run correlation, and keep missing
   results distinct from a failed test with a numeric score. HTTP operations must not

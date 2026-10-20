@@ -4,10 +4,13 @@ import java.io.IOException;
 import java.time.Instant;
 import java.util.List;
 
-/** Read-only access to workflow metadata and feedback artifact archives. */
+/** Read-only access to repository permissions, workflow metadata and feedback artifact archives. */
 public interface FeedbackSource {
 
     record Repository(long id, String name, boolean privateRepository, boolean fork) { }
+
+    /** Verified GitHub account identity and its base repository permission. */
+    record Access(long userId, String login, String permission) { }
 
     /** workflowPath is the canonical file path, without GitHub's optional @ref suffix. */
     record Run(long id, int attempt, long repositoryId, String repository, String branch, String commit,
@@ -17,6 +20,9 @@ public interface FeedbackSource {
             boolean expired, long sizeBytes, String digest) { }
 
     Repository repository(String fullName) throws IOException;
+
+    /** Reads effective repository access; returns null when GitHub responds with HTTP 404. */
+    Access access(String repository, String login) throws IOException;
 
     /** Lists branch-bearing push runs, scanning the workflow's unfiltered run history. */
     List<Run> runs(String repository, String workflowFile) throws IOException;

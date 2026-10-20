@@ -36,6 +36,7 @@ import org.mockito.ArgumentMatchers;
 
 class GitHubFeedbackClientTest {
     private static final String REPOSITORY = "teaching/course-42";
+    private static final String LOGIN = "Student-42";
     private static final String TOKEN = "github_pat_private_feedback_token";
     private static final String SHA = "a".repeat(40);
     private static final String SIGNED = "https://store.blob.core.windows.net/artifact?sig=private-signed-secret";
@@ -84,6 +85,125 @@ class GitHubFeedbackClientTest {
         assertTrue(result.privateRepository());
         assertFalse(result.fork());
         assertEquals(new Request("GET", "/repos/" + REPOSITORY, "Bearer " + TOKEN), requests.get(0));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"admin", "write", "read", "none"})
+    void readsEffectiveAccessWithGetAndPrivateToken(String permission) throws IOException {
+        reply(200, access(permission));
+        FeedbackSource.Access result = github.access(REPOSITORY, LOGIN.toLowerCase(java.util.Locale.ROOT));
+        assertEquals(new FeedbackSource.Access(456, LOGIN, permission), result);
+        assertEquals(List.of(new Request("GET", "/repos/" + REPOSITORY
+                + "/collaborators/student-42/permission", "Bearer " + TOKEN)), requests);
+    }
+
+    @Test
+    void usesCanonicalBasePermissionRatherThanRoleName() throws IOException {
+        reply(200, access("write").replace("\"role_name\":\"write\"", "\"role_name\":\"maintain\""));
+        assertEquals("write", github.access(REPOSITORY, LOGIN).permission());
+        reply(200, access("none").replace("\"role_name\":\"none\"", "\"role_name\":\"admin\""));
+        assertEquals("none", github.access(REPOSITORY, LOGIN).permission());
+    }
+
+    @Test
+    void returnsNoAccessOnNotFoundWithoutParsingPrivateBody() throws IOException {
+        reply(404, "private-signed-secret " + TOKEN);
+        assertNull(github.access(REPOSITORY, LOGIN));
+        assertEquals(List.of(new Request("GET", "/repos/" + REPOSITORY
+                + "/collaborators/" + LOGIN + "/permission", "Bearer " + TOKEN)), requests);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"456\"", "0", "-1", "1.5", "9223372036854775808", "true", "null", "{}"})
+    void rejectsAccessIdentityTypeCoercion(String id) {
+        reply(200, access("write").replace("\"id\":456", "\"id\":" + id));
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"other-student\"", "\"-Student-42\"", "\"Student-42-\"", "\"Student--42\"",
+            "\"Student/42\"", "\"\"", "42", "null", "true", "{}"})
+    void rejectsMalformedOrMismatchedAccessLogin(String login) {
+        reply(200, access("write").replace("\"login\":\"" + LOGIN + "\"", "\"login\":" + login));
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+    }
+
+    @Test
+    void rejectsMissingNestedAccessIdentity() {
+        for (String malformed : List.of("{\"permission\":\"write\"}", "{\"permission\":\"write\",\"user\":null}",
+                "{\"permission\":\"write\",\"user\":\"private-signed-secret\"}",
+                "{\"permission\":\"write\",\"id\":456,\"login\":\"" + LOGIN + "\"}",
+                access("write").replace(",\"id\":456", ""),
+                access("write").replace("\"login\":\"" + LOGIN + "\",", ""))) {
+            reply(200, malformed);
+            assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+        }
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"\"maintain\"", "\"triage\"", "\"push\"", "\"owner\"", "\"WRITE\"",
+            "\"write \"", "\"\"", "null", "true", "1", "{}"})
+    void rejectsUnknownOrCoercedAccessPermission(String permission) {
+        reply(200, access("write").replace("\"permission\":\"write\"", "\"permission\":" + permission));
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+    }
+
+    @Test
+    void rejectsInvalidAccessAccountNamesBeforeRequesting() {
+        for (String login : List.of("", "-student", "student-", "student--name", "student/name", "student?key=value",
+                "student name", "a".repeat(40))) {
+            assertThrows(IllegalArgumentException.class, () -> github.access(REPOSITORY, login));
+        }
+        assertThrows(IllegalArgumentException.class, () -> github.access(REPOSITORY, null));
+        assertTrue(requests.isEmpty());
+    }
+
+    @Test
+    void acceptsThirtyNineCharacterAccessLoginAndRejectsLongerMetadata() throws IOException {
+        String login = "a".repeat(39);
+        reply(200, access("write").replace(LOGIN, login));
+        assertEquals(login, github.access(REPOSITORY, login).login());
+        reply(200, access("write").replace(LOGIN, "a".repeat(40)));
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {401, 403, 500})
+    void preservesAccessApiFailuresWithoutTreatingThemAsMissing(int status) {
+        reply(status, "private-signed-secret " + TOKEN);
+        Failure failure = assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN));
+        assertEquals(status, failure.status());
+        assertNull(failure.retryAt());
+        assertSanitized(failure);
+    }
+
+    @Test
+    void propagatesAccessRateLimitDeadline() {
+        Instant before = Instant.now();
+        reply(429, "private-signed-secret " + TOKEN, Map.of("Retry-After", "120"));
+        Failure failure = assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN));
+        assertEquals(429, failure.status());
+        assertTrue(failure.retryAt().isAfter(before.plusSeconds(119)));
+        assertTrue(failure.retryAt().isBefore(Instant.now().plusSeconds(121)));
+        assertSanitized(failure);
+    }
+
+    @Test
+    void neverFollowsAuthenticatedAccessRedirect() {
+        reply(302, "private-signed-secret", Map.of("Location", SIGNED));
+        Failure failure = assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN));
+        assertEquals(302, failure.status());
+        assertEquals(1, requests.size());
+        assertEquals("GET", requests.get(0).method());
+        assertSanitized(failure);
+    }
+
+    @Test
+    void boundsAndSanitizesAccessJsonResponses() {
+        reply(200, "x".repeat(4 * 1024 * 1024 + 1));
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
+        reply(200, "{malformed-private-signed-secret-" + TOKEN);
+        assertSanitized(assertThrows(Failure.class, () -> github.access(REPOSITORY, LOGIN)));
     }
 
     @ParameterizedTest
@@ -390,6 +510,11 @@ class GitHubFeedbackClientTest {
 
     private static String repository() {
         return "{\"id\":123,\"full_name\":\"" + REPOSITORY + "\",\"private\":true,\"fork\":false}";
+    }
+
+    private static String access(String permission) {
+        return "{\"permission\":\"" + permission + "\",\"role_name\":\"" + permission
+                + "\",\"user\":{\"login\":\"" + LOGIN + "\",\"id\":456}}";
     }
 
     private static String run(long id, int attempt) {

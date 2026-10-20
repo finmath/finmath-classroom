@@ -13,10 +13,12 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipOutputStream;
 
 import org.finmath.classroom.feedback.FeedbackSource.Artifact;
+import org.finmath.classroom.feedback.FeedbackSource.Access;
 import org.finmath.classroom.feedback.FeedbackSource.Run;
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.registration.ClassroomConfig;
@@ -24,6 +26,10 @@ import org.finmath.classroom.registration.EnrollmentStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.MethodSource;
+import org.junit.jupiter.params.provider.NullSource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 import tools.jackson.databind.node.ObjectNode;
 
@@ -93,6 +99,236 @@ class FeedbackSyncTest {
         assertEquals(1, source.downloads);
         assertEquals(1, source.artifactRequests);
         assertEquals(15, new FeedbackStore(directory, false).result(123456, 987654, 1).path("score").asInt());
+        assertEquals(0, source.accessRequests);
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"write", "admin"})
+    void acceptedInvitationActivatesDuringFeedbackCollectionAndIsNotRechecked(String permission) throws Exception {
+        pending();
+        var original = enrollment("alice");
+        source.access = new Access(42, "ALICE", permission);
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessChecked());
+        assertEquals(1, report.accessActivated());
+        assertEquals(0, report.accessErrors());
+        assertEquals(0, report.errors());
+        assertEquals(1, report.received());
+        var active = enrollment("alice");
+        assertEquals("active", active.status());
+        assertNull(active.problem());
+        assertEquals(original.acceptedAt(), active.acceptedAt());
+        assertEquals(original.repositoryId(), active.repositoryId());
+        assertEquals(original.githubId(), active.githubId());
+        assertEquals(original.identitySource(), active.identitySource());
+        assertEquals(1, source.accessRequests);
+
+        var repeated = sync();
+        assertEquals(0, repeated.accessChecked());
+        assertEquals(0, repeated.accessActivated());
+        assertEquals(0, repeated.accessErrors());
+        assertEquals(1, repeated.alreadyStored());
+        assertEquals(1, source.accessRequests);
+    }
+
+    @ParameterizedTest
+    @NullSource
+    @ValueSource(strings = {"read", "none"})
+    void missingOrReadOnlyAccessKeepsInvitationPendingAndStillCollectsFeedback(String permission) throws Exception {
+        pending();
+        var original = enrollment("alice");
+        source.access = permission == null ? null : new Access(42, "alice", permission);
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessChecked());
+        assertEquals(0, report.accessActivated());
+        assertEquals(0, report.accessErrors());
+        assertEquals(0, report.errors());
+        assertEquals(1, report.received());
+        assertEquals(original, enrollment("alice"));
+    }
+
+    @ParameterizedTest
+    @MethodSource("invalidAccess")
+    void mismatchedOrUnrecognizedAccessIsAnErrorWithoutChangingEnrollmentOrBlockingFeedback(Access access) throws Exception {
+        pending();
+        var original = enrollment("alice");
+        source.access = access;
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessChecked());
+        assertEquals(0, report.accessActivated());
+        assertEquals(1, report.accessErrors());
+        assertEquals(1, report.errors());
+        assertEquals(1, report.received());
+        assertEquals(original, enrollment("alice"));
+    }
+
+    static Stream<Access> invalidAccess() {
+        return Stream.of(new Access(99, "alice", "write"), new Access(42, "someone-else", "write"),
+                new Access(0, "alice", "write"), new Access(42, null, "write"),
+                new Access(42, "alice", "unknown"), new Access(42, "alice", null));
+    }
+
+    @ParameterizedTest
+    @ValueSource(ints = {403, 500})
+    void accessApiFailuresPreserveEnrollmentAndContinueCollectingFeedback(int status) throws Exception {
+        pending();
+        var original = enrollment("alice");
+        source.accessFailure = new FeedbackSource.Failure("private access response", status, null);
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessChecked());
+        assertEquals(0, report.accessActivated());
+        assertEquals(1, report.accessErrors());
+        assertEquals(1, report.errors());
+        assertEquals(1, report.received());
+        assertFalse(report.deferred());
+        assertEquals(original, enrollment("alice"));
+        assertFalse(store.checks(null, null).toString().contains("private access response"));
+    }
+
+    @Test void accessTransportFailurePreservesEnrollmentAndContinuesCollectingFeedback() throws Exception {
+        pending();
+        var original = enrollment("alice");
+        source.accessFailure = new IOException("private transport response");
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessErrors());
+        assertEquals(1, report.errors());
+        assertEquals(1, report.received());
+        assertEquals(original, enrollment("alice"));
+        assertFalse(store.checks(null, null).toString().contains("private transport response"));
+    }
+
+    @Test void accessRateLimitDefersCollectionAndRetriesAfterTheSavedDelay() throws Exception {
+        pending();
+        source.accessFailure = new FeedbackSource.Failure("private access rate limit", 429, now.plusSeconds(60));
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var deferred = sync();
+
+        assertTrue(deferred.deferred());
+        assertEquals(1, deferred.accessChecked());
+        assertEquals(1, deferred.accessErrors());
+        assertEquals(1, deferred.errors());
+        assertEquals(0, source.runRequests);
+        assertEquals("invitation_pending", enrollment("alice").status());
+        assertTrue(sync().deferred());
+        assertEquals(1, source.accessRequests);
+        source.accessFailure = null;
+        source.access = new Access(42, "alice", "write");
+
+        var resumed = sync(source, now.plusSeconds(61), null, null);
+
+        assertFalse(resumed.deferred());
+        assertEquals(1, resumed.accessActivated());
+        assertEquals(1, resumed.received());
+    }
+
+    @Test void accessUnauthorizedStopsBeforeCollectingFeedbackOrPollingOtherRepositories() throws Exception {
+        pending();
+        addEnrollment("bob", "task", 123457);
+        source.accessFailure = new FeedbackSource.Failure("private authorization response", 401, null);
+        source.runs = List.of(run(1, "completed"));
+
+        var report = sync();
+
+        assertEquals(1, report.repositories());
+        assertEquals(1, report.accessChecked());
+        assertEquals(1, report.accessErrors());
+        assertEquals(1, report.errors());
+        assertFalse(report.deferred());
+        assertEquals(0, source.runRequests);
+        assertEquals(1, source.repositoryRequests);
+        assertEquals("invitation_pending", enrollment("alice").status());
+    }
+
+    @Test void staleRepositoryIdentityPreventsAccessChecks() throws Exception {
+        pending();
+        source.repositoryId = 999;
+
+        var report = sync();
+
+        assertEquals(1, report.errors());
+        assertEquals(0, report.accessChecked());
+        assertEquals(0, source.accessRequests);
+        assertEquals("invitation_pending", enrollment("alice").status());
+    }
+
+    @Test void accessChecksFollowAssignmentFiltersAndSkipRetryableOrUncreatedRepositories() throws Exception {
+        pending();
+        addEnrollment("bob", "other", 123457);
+        update("UPDATE enrollments SET status='invitation_pending' WHERE student_id='bob'");
+
+        assertEquals(1, sync(source, now, "lecture", "task").accessChecked());
+        assertEquals(1, source.accessRequests);
+        update("UPDATE enrollments SET status='retryable' WHERE student_id='alice'");
+        assertEquals(0, sync(source, now, "lecture", "task").accessChecked());
+        assertEquals(1, source.accessRequests);
+        update("UPDATE enrollments SET status='invitation_pending',repository_id=NULL WHERE student_id='alice'");
+        assertEquals(0, sync(source, now, "lecture", "task").repositories());
+        assertEquals(1, source.accessRequests);
+    }
+
+    @Test void operationStartedDuringAccessRequestIsNeverClearedByTheCollector() throws Exception {
+        pending();
+        source.access = new Access(42, "alice", "write");
+        source.onAccess = () -> update("UPDATE enrollments SET busy=1 WHERE student_id='alice'");
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+
+        var report = sync();
+
+        assertEquals(1, report.accessChecked());
+        assertEquals(0, report.accessActivated());
+        assertEquals(1, report.received());
+        assertEquals("invitation_pending", enrollment("alice").status());
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db"));
+                var statement = connection.createStatement(); var row = statement.executeQuery("SELECT busy FROM enrollments WHERE student_id='alice'")) {
+            assertTrue(row.next());
+            assertEquals(1, row.getInt(1));
+        }
+    }
+
+    @Test void acceptedAccessCanBeObservedAfterTheAssignmentDeadline() throws Exception {
+        Path expiredDirectory = directory.resolve("expired");
+        java.nio.file.Files.createDirectories(expiredDirectory);
+        var expiredAssignment = new ClassroomConfig.Assignment("task", "Task", "example-org/template", "task", "main",
+                now.minusSeconds(1), "assignment-key", null, null);
+        var expiredConfig = new ClassroomConfig(List.of(new ClassroomConfig.Lecture("lecture", "Lecture", "example-org", null,
+                "lecture-key", List.of(), List.of(expiredAssignment))));
+        var expiredEnrollments = new EnrollmentStore(expiredDirectory.resolve("classroom.db"), true);
+        expiredEnrollments.importConfiguration(expiredConfig, null);
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + expiredDirectory.resolve("classroom.db")); var statement = connection.createStatement()) {
+            statement.executeUpdate("INSERT INTO students VALUES ('lecture','alice','Alice',42,'alice','self','42')");
+            statement.executeUpdate("INSERT INTO enrollments (lecture_id,assignment_id,student_id,accepted_name,identity_source,identity_subject,accepted_at,declaration_version,declaration,repository,repository_id,status) VALUES ('lecture','task','alice','Alice','self','42','2026-10-19T10:00:00Z','1','accepted','example-org/assignment-student',123456,'invitation_pending')");
+        }
+        source.access = new Access(42, "alice", "write");
+        var expiredStore = new FeedbackStore(expiredDirectory, true);
+
+        var report = new FeedbackSync(expiredConfig, expiredEnrollments, expiredStore, source, Clock.fixed(now, ZoneOffset.UTC))
+                .sync(null, null, "classroom.yml");
+
+        assertEquals(1, report.accessActivated());
+        assertEquals("active", expiredEnrollments.list(null, null).get(0).status());
     }
 
     @Test void oldRunRerunInProgressStillRecoversPreviousAttemptThenNewAttempt() throws Exception {
@@ -311,6 +547,18 @@ class FeedbackSyncTest {
         return new FeedbackSync(config, enrollments, store, github, Clock.fixed(time, ZoneOffset.UTC)).sync(lecture, assignment, "classroom.yml");
     }
 
+    private void pending() throws IOException {
+        update("UPDATE enrollments SET status='invitation_pending',problem='Waiting for invitation acceptance' WHERE student_id='alice'");
+    }
+
+    private void update(String sql) throws IOException {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); var statement = connection.createStatement()) {
+            statement.executeUpdate(sql);
+        } catch (java.sql.SQLException failure) {
+            throw new IOException("Cannot update enrollment test fixture", failure);
+        }
+    }
+
     private EnrollmentStore.Enrollment enrollment(String student) throws IOException {
         return enrollments.list(null, null).stream().filter(enrollment -> student.equals(enrollment.studentId())).findFirst().orElseThrow();
     }
@@ -371,13 +619,17 @@ class FeedbackSyncTest {
         }
 
         public List<Artifact> artifacts(String name, long run) throws IOException { request(); return List.of(); }
+        public Access access(String name, String login) { throw new AssertionError("Active enrollments do not need access checks"); }
         public Run attempt(String name, long run, int attempt) { throw new AssertionError("No older attempt expected"); }
         public byte[] download(String name, long artifact) { throw new AssertionError("Missing artifacts cannot be downloaded"); }
     }
 
     private final class FakeSource implements FeedbackSource {
         long repositoryId = 123456;
-        int repositoryRequests, runRequests, artifactRequests, attemptRequests, downloads;
+        int repositoryRequests, runRequests, artifactRequests, attemptRequests, downloads, accessRequests;
+        Access access;
+        IOException accessFailure;
+        IoAction onAccess;
         List<Run> runs = List.of();
         List<Artifact> artifacts = new ArrayList<>();
         Map<Integer, Run> attempts = new HashMap<>();
@@ -385,6 +637,14 @@ class FeedbackSyncTest {
         Failure failure, attemptFailure;
 
         public Repository repository(String name) { repositoryRequests++; return new Repository(repositoryId, name, true, false); }
+        public Access access(String name, String login) throws IOException {
+            assertEquals(repository, name);
+            assertEquals("alice", login);
+            accessRequests++;
+            if (onAccess != null) onAccess.run();
+            if (accessFailure != null) throw accessFailure;
+            return access;
+        }
         public List<Run> runs(String name, String workflow) throws IOException {
             assertEquals("classroom.yml", workflow);
             runRequests++;
@@ -399,4 +659,6 @@ class FeedbackSyncTest {
         public List<Artifact> artifacts(String name, long run) { artifactRequests++; return List.copyOf(artifacts); }
         public byte[] download(String name, long artifact) { downloads++; return archives.get(artifact); }
     }
+
+    @FunctionalInterface private interface IoAction { void run() throws IOException; }
 }

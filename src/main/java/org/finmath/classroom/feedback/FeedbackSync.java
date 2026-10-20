@@ -13,6 +13,7 @@ import java.util.Objects;
 import java.util.Set;
 
 import org.finmath.classroom.feedback.FeedbackSource.Artifact;
+import org.finmath.classroom.feedback.FeedbackSource.Access;
 import org.finmath.classroom.feedback.FeedbackSource.Failure;
 import org.finmath.classroom.feedback.FeedbackSource.Run;
 import org.finmath.classroom.registration.ClassroomConfig;
@@ -22,7 +23,7 @@ import org.finmath.classroom.registration.EnrollmentStore.Enrollment;
 /** Pulls student feedback without executing student code or holding a database transaction over HTTP. */
 public final class FeedbackSync {
     public record Report(int repositories, int received, int alreadyStored, int unavailable,
-            int errors, boolean deferred, Instant retryAt) { }
+            int errors, boolean deferred, Instant retryAt, int accessChecked, int accessActivated, int accessErrors) { }
 
     private final ClassroomConfig config;
     private final EnrollmentStore enrollments;
@@ -43,7 +44,7 @@ public final class FeedbackSync {
         String file = workflowFile(workflow);
         enrollments.verifyConfiguration(config);
         Instant deferred = store.deferredUntil();
-        if (deferred != null && clock.instant().isBefore(deferred)) return new Report(0, 0, 0, 0, 0, true, deferred);
+        if (deferred != null && clock.instant().isBefore(deferred)) return new Report(0, 0, 0, 0, 0, true, deferred, 0, 0, 0);
         Counts counts = new Counts();
         for (Enrollment enrollment : pollingOrder(lectureId, assignmentId)) {
             counts.repositories++;
@@ -55,6 +56,7 @@ public final class FeedbackSync {
                         || !repository.privateRepository() || repository.fork()) {
                     throw new IllegalArgumentException("Enrolled repository identity or visibility no longer matches.");
                 }
+                String accessProblem = refreshAccess(enrollment, counts);
                 String branch = config.assignment(enrollment.lectureId(), enrollment.assignmentId()).branch();
                 for (Run run : github.runs(enrollment.repository(), file)) {
                     // Listing deliberately has no search filters: old runs can acquire new attempts.
@@ -95,7 +97,7 @@ public final class FeedbackSync {
                         collect(enrollment, current, artifacts, counts);
                     }
                 }
-                store.checked(enrollment, counts.errors > previousErrors || counts.unavailable > previousUnavailable ? "attention" : "ok", null, clock.instant());
+                store.checked(enrollment, counts.errors > previousErrors || counts.unavailable > previousUnavailable ? "attention" : "ok", accessProblem, clock.instant());
             } catch (Failure failure) {
                 counts.errors++;
                 store.checked(enrollment, failure.retryAt() == null ? "unavailable" : "deferred", failureMessage(failure), clock.instant());
@@ -112,6 +114,36 @@ public final class FeedbackSync {
             }
         }
         return counts.report(false, null);
+    }
+
+    private String refreshAccess(Enrollment enrollment, Counts counts) throws IOException {
+        if (!"invitation_pending".equals(enrollment.status())) return null;
+        counts.accessChecked++;
+        try {
+            Access access = github.access(enrollment.repository(), enrollment.githubLogin());
+            if (access == null) return null;
+            if (access.userId() != enrollment.githubId() || access.login() == null
+                    || !access.login().equalsIgnoreCase(enrollment.githubLogin())
+                    || access.permission() == null
+                    || !Set.of("admin", "write", "read", "none").contains(access.permission())) {
+                throw new IllegalArgumentException("Student repository access identity does not match.");
+            }
+            if (("admin".equals(access.permission()) || "write".equals(access.permission()))
+                    && enrollments.activateInvitation(enrollment)) counts.accessActivated++;
+        } catch (Failure failure) {
+            counts.accessErrors++;
+            // Respect the collector's shared authentication/rate-limit handling before more API calls.
+            if (failure.retryAt() != null || failure.status() == 401) throw failure;
+            counts.errors++;
+            return "Student repository access could not be verified"
+                    + (failure.status() > 0 ? " (HTTP " + failure.status() + ")" : "")
+                    + "; feedback collection continued.";
+        } catch (IOException | IllegalArgumentException failure) {
+            counts.accessErrors++;
+            counts.errors++;
+            return "Student repository access could not be verified; feedback collection continued.";
+        }
+        return null;
     }
 
     private List<Enrollment> pollingOrder(String lectureId, String assignmentId) throws IOException {
@@ -233,9 +265,13 @@ public final class FeedbackSync {
         int alreadyStored;
         int unavailable;
         int errors;
+        int accessChecked;
+        int accessActivated;
+        int accessErrors;
 
         Report report(boolean deferred, Instant retryAt) {
-            return new Report(repositories, received, alreadyStored, unavailable, errors, deferred, retryAt);
+            return new Report(repositories, received, alreadyStored, unavailable, errors, deferred, retryAt,
+                    accessChecked, accessActivated, accessErrors);
         }
     }
 }
