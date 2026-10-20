@@ -67,6 +67,13 @@ a:focus-visible, button:focus-visible {
 #bodyColumn h2 { margin: 36px 0 17px; font-size: 25px; font-weight: 600; letter-spacing: -.025em; }
 #bodyColumn h3 { margin: 26px 0 13px; font-size: 19px; font-weight: 600; }
 #bodyColumn p { margin-bottom: 18px; }
+#bodyColumn img {
+  box-sizing: border-box;
+  max-width: 100%;
+  height: auto;
+  border: 1px solid var(--classroom-line);
+  border-radius: 8px;
+}
 #bodyColumn li { margin-bottom: 7px; line-height: 1.75; }
 #bodyColumn blockquote {
   margin: 26px 0;

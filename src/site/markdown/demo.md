@@ -5,14 +5,32 @@ registration, implementation, test feedback and feedback collection. The task
 concerns quadratic equations. The scores are illustrative; each course defines
 its own rubric and tests.
 
+## Try the assignment
+
+[Open the demo assignment](https://classroom.finmath.net/accept/numerical-methods-demo/quadratic-equation-demo?lectureKey=public-numerical-methods-demo&assignmentKey=public-quadratic-equation-demo)
+to register with a GitHub account and create a private copy of the exercise.
+Follow the instructions in the repository's README, run the tests and push changes
+to receive feedback.
+
+The public demo has a separate course and assignment from the teaching courses.
+Its registration link is available to anyone visiting this page.
+
 ## Registration
 
 The student opens the course's assignment page, signs in with GitHub, confirms
 the required registration details and accepts the declaration.
 
+![Assignment page with the Connect GitHub account button](images/demo-registration.png)
+
+The screenshots show the application interface with fictional demonstration data.
+
+![Registration form for the fictional student Alex Example](images/demo-confirmation.png)
+
 The service creates a private copy of the instructor's template and grants
 access. The student accepts the GitHub invitation when needed and opens the
 repository as a Java project.
+
+![Completed acceptance with the Open your repository button](images/demo-repository.png)
 
 ## Implementation
 

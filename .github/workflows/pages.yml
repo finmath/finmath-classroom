@@ -26,7 +26,9 @@ jobs:
       - name: Generate public pages
         run: mvn -B -ntp site
       - name: Check public pages and local links
-        run: bash scripts/check-site.sh
+        run: |
+          bash scripts/check-site.sh
+          bash scripts/test-site.sh
       - name: Upload the generated site only
         if: >-
           github.repository == 'finmath/finmath-classroom' &&

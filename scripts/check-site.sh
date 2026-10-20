@@ -32,6 +32,15 @@ anchors = {}
 required = ("index.html", "motivation.html", "demo.html")
 markup_suffixes = {".html", ".htm", ".xhtml", ".svg"}
 private_key = re.compile(r"(?:lecturekey|assignmentkey)", re.IGNORECASE)
+# These two keys deliberately enroll anyone in the isolated public demo only.
+# Pin the entire URL; teaching links must never inherit this exception.
+public_demo_page = Path("demo.html")
+public_demo_url = (
+    "https://classroom.finmath.net/accept/numerical-methods-demo/quadratic-equation-demo"
+    "?lectureKey=public-numerical-methods-demo&assignmentKey=public-quadratic-equation-demo"
+)
+public_demo_href = re.compile(r'''(?<!\S)href=(["'])''' + re.escape(public_demo_url) + r"\1")
+public_demo_links = 0
 css_url = re.compile(r"url\(\s*(['\"]?)(.*?)\1\s*\)", re.IGNORECASE | re.DOTALL)
 css_import = re.compile(r"@import\s+(['\"])(.*?)\1", re.IGNORECASE | re.DOTALL)
 
@@ -56,13 +65,20 @@ def private_content(path, text):
         fail(path, "contains a local user path")
     if re.search(r"\bfile\s*://", value, re.IGNORECASE):
         fail(path, "contains a file URL")
+    if path == public_demo_page:
+        # Exempt only a complete, quoted href, never free text or URL prefixes.
+        value = public_demo_href.sub("", value)
     if re.search(r"(?:lecturekey|assignmentkey)\s*=", value, re.IGNORECASE):
         fail(path, "contains a registration query key")
 
 
-def reference(path, value):
+def reference(path, value, *, public_demo_anchor=False):
+    global public_demo_links
     if private_key.search(decoded(value)):
-        fail(path, "link contains a registration key")
+        if public_demo_anchor and path == public_demo_page and decoded(value) == public_demo_url:
+            public_demo_links += 1
+        else:
+            fail(path, "link contains a registration key")
     references.append((path, value))
 
 
@@ -92,7 +108,7 @@ class Document(HTMLParser):
             if value is None:
                 continue
             if key in {"href", "src", "poster", "action", "formaction", "cite", "background", "xlink:href"} or (tag == "object" and key == "data"):
-                reference(self.path, value)
+                reference(self.path, value, public_demo_anchor=tag == "a" and key == "href")
             elif key == "srcset" and not value.lstrip().startswith("data:"):
                 for candidate in value.split(","):
                     if candidate.strip():
@@ -164,6 +180,9 @@ for relative in sorted(files):
             anchors[relative] = document.ids
     except (UnicodeError, ValueError):
         fail(relative, "cannot parse UTF-8 markup or stylesheet")
+
+if public_demo_links != 1:
+    fail(public_demo_page, "must contain exactly one approved public demo acceptance link")
 
 local_count = 0
 for source, value in references:
