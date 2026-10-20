@@ -84,7 +84,7 @@ an isolated runner for authoritative final grading remain future work.
 The [feedback guide](https://github.com/finmath/finmath-classroom/blob/main/docs/autograding.md)
 describes collection and administration.
 
+![Automatic workflow after a push to the repo](images/finmath-classroom-action-example.png)
+
 The [getting-started guide](https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md)
 covers the application build, example configuration and setup of a live assignment.
-
-![Automatic workflow after a push to the repo](images/finmath-classroom-action-example.png))
