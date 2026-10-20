@@ -104,9 +104,10 @@ classroom_assignment=quadratic-equation-demo
 Other activities use their own lecture and assignment IDs with the same tool
 registration. Students click the named activity on their Moodle course page.
 
-The classroom server must first be configured to trust the Moodle deployment and
-map its course and activity to this assignment. A normal Moodle URL link does not
-supply a verified identity.
+The classroom server must first be configured to trust the Moodle deployment.
+The two custom parameters select the assignment from its imported configuration;
+no Moodle course or activity IDs need to be added to the server. A normal Moodle
+URL link does not supply a verified identity.
 
 For a new acceptance, a signed launch supplies the student's Moodle identity and,
 when name sharing is enabled, their name. The student connects a GitHub account

@@ -25,6 +25,7 @@ import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
 import org.junit.jupiter.params.ParameterizedTest;
 import org.junit.jupiter.params.provider.Arguments;
 import org.junit.jupiter.params.provider.CsvSource;
@@ -55,13 +56,11 @@ class MoodleLaunchTest {
 
 	@BeforeEach
 	void setup() {
-		NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey((RSAPublicKey) key.getPublic()).build();
-		decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(ISSUER));
 		ClassroomConfig config = new ClassroomConfig(List.of(
 				lecture("lecture", List.of(assignment("task", "course-1", "resource-1"),
 						assignment("second", "course-1", "resource-2"), assignment("unmapped", null, null))),
 				lecture("other", List.of(assignment("task", "course-2", "resource-3")))));
-		moodle = new MoodleLaunch(config, PUBLIC_URL, ISSUER, "client", "deployment", ISSUER + "/auth", decoder);
+		moodle = configured(config);
 		claims = new HashMap<>();
 		claims.put("iss", ISSUER);
 		claims.put("sub", "student-42");
@@ -121,8 +120,9 @@ class MoodleLaunchTest {
 	}
 
 	@ParameterizedTest
-	@CsvSource({"lecture,task,course-1,resource-1", "lecture,second,course-1,resource-2", "other,task,course-2,resource-3"})
-	void testSharedTargetRoutesOnlyTheConfiguredSignedActivity(String lectureId, String assignmentId, String courseId, String resourceId) throws Exception {
+	@CsvSource({"lecture,task,course-1,resource-1", "lecture,second,course-1,resource-2", "other,task,course-2,resource-3",
+			"lecture,unmapped,new-course,new-activity", "lecture,task,another-course,another-activity"})
+	void testSharedTargetUsesSignedSelectorsForAnyConfiguredAssignment(String lectureId, String assignmentId, String courseId, String resourceId) throws Exception {
 		begin(true);
 		Map<String, Object> custom = selectors(lectureId, assignmentId);
 		custom.put("unrelated", "preserved Moodle custom parameter");
@@ -133,6 +133,21 @@ class MoodleLaunchTest {
 		MoodleLaunch.Launch result = moodle.complete(login.state());
 		assertEquals(lectureId, result.lectureId());
 		assertEquals(assignmentId, result.assignmentId());
+	}
+
+	@ParameterizedTest
+	@CsvSource({"false,course-1,resource-1", "false,new-course,new-activity", "true,course-1,resource-1", "true,new-course,new-activity"})
+	void testSignedSelectorsNeedNoServerMappingAndAllowDifferentMoodleActivities(boolean shared, String courseId, String resourceId) throws Exception {
+		moodle = configured(new ClassroomConfig(List.of(lecture("lecture", List.of(assignment("task", null, null))))));
+		begin(shared);
+		claims.put(CUSTOM, selectors("lecture", "task"));
+		claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", courseId));
+		claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", resourceId));
+		moodle.verify(login.state(), signed(key));
+		MoodleLaunch.Launch result = moodle.complete(login.state());
+		assertEquals("lecture", result.lectureId());
+		assertEquals("task", result.assignmentId());
+		assertEquals("Alex Student", result.identity().name());
 	}
 
 	@ParameterizedTest(name = "{0}")
@@ -148,7 +163,7 @@ class MoodleLaunchTest {
 	}
 
 	@ParameterizedTest(name = "{0}")
-	@MethodSource("invalidSelectors")
+	@MethodSource("invalidDirectSelectors")
 	void testDirectTargetRejectsPartialOrConflictingSelectors(String description, Map<String, Object> custom) throws Exception {
 		claims.put(CUSTOM, custom);
 		assertRejected();
@@ -172,8 +187,7 @@ class MoodleLaunchTest {
 
 	@ParameterizedTest
 	@CsvSource({"course-1,resource-2", "course-2,resource-3", "course-2,resource-1", "course-1,resource-3"})
-	void testSelectorsCannotOverrideSignedCourseOrActivity(String courseId, String resourceId) throws Exception {
-		begin(true);
+	void testLegacyDirectTargetRequiresItsConfiguredCourseAndActivity(String courseId, String resourceId) throws Exception {
 		claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", courseId));
 		claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", resourceId));
 		assertRejected();
@@ -189,13 +203,20 @@ class MoodleLaunchTest {
 
 	@ParameterizedTest
 	@MethodSource("incompleteMappings")
-	void testLoginRequiresACompleteConfiguredMoodleMapping(String courseId, String resourceId) {
-		ClassroomConfig config = new ClassroomConfig(List.of(lecture("lecture", List.of(assignment("task", courseId, resourceId)))));
-		MoodleLaunch unconfigured = new MoodleLaunch(config, PUBLIC_URL, ISSUER, "client", "deployment", ISSUER + "/auth", token -> {
+	void testLegacyDirectLaunchWithoutSelectorsRequiresACompleteConfiguredMapping(String courseId, String resourceId) throws Exception {
+		moodle = configured(new ClassroomConfig(List.of(lecture("lecture", List.of(assignment("task", courseId, resourceId))))));
+		begin(false);
+		assertRejected();
+	}
+
+	@Test
+	void testLoginDoesNotRequireMappingsOrDecodeTokens() {
+		ClassroomConfig config = new ClassroomConfig(List.of(lecture("lecture", List.of(assignment("task", null, null)))));
+		MoodleLaunch unmapped = new MoodleLaunch(config, PUBLIC_URL, ISSUER, "client", "deployment", ISSUER + "/auth", token -> {
 			throw new AssertionError("Login must not decode tokens");
 		});
-		assertThrows(IllegalArgumentException.class, () -> unconfigured.login(ISSUER, "client", "hint", null, SHARED_TARGET));
-		assertThrows(IllegalArgumentException.class, () -> unconfigured.login(ISSUER, "client", "hint", null, TARGET));
+		assertEquals("/auth", unmapped.login(ISSUER, "client", "hint", null, SHARED_TARGET).authorizationUrl().getPath());
+		assertEquals("/auth", unmapped.login(ISSUER, "client", "hint", null, TARGET).authorizationUrl().getPath());
 	}
 
 	static Stream<Arguments> invalidSharedSelectors() {
@@ -218,10 +239,14 @@ class MoodleLaunchTest {
 				Arguments.of("padded lecture selector", selectors(" lecture", "task")),
 				Arguments.of("padded assignment selector", selectors("lecture", "task ")),
 				Arguments.of("unknown lecture", selectors("unknown", "task")),
-				Arguments.of("unknown assignment", selectors("lecture", "unknown")),
-				Arguments.of("assignment without Moodle mapping", selectors("lecture", "unmapped")),
-				Arguments.of("another assignment in the same course", selectors("lecture", "second")),
-				Arguments.of("same assignment ID in another lecture", selectors("other", "task")));
+				Arguments.of("unknown assignment", selectors("lecture", "unknown")));
+	}
+
+	static Stream<Arguments> invalidDirectSelectors() {
+		return Stream.concat(invalidSelectors(), Stream.of(
+				Arguments.of("different assignment without Moodle mapping", selectors("lecture", "unmapped")),
+				Arguments.of("different assignment in the same lecture", selectors("lecture", "second")),
+				Arguments.of("same assignment ID in another lecture", selectors("other", "task"))));
 	}
 
 	static Stream<Map<String, Object>> validDirectCustomParameters() {
@@ -262,8 +287,16 @@ class MoodleLaunchTest {
 				claims -> claims.put(MoodleLaunch.CLAIM + "message_type", "LtiDeepLinkingRequest"),
 				claims -> claims.put(MoodleLaunch.CLAIM + "target_link_uri", "https://class.example/accept/lecture/other"),
 				claims -> claims.put(MoodleLaunch.CLAIM + "roles", List.of("http://purl.imsglobal.org/vocab/lis/v2/membership#Instructor")),
-				claims -> claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", "another-course")),
-				claims -> claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", "another-activity")));
+				claims -> claims.remove(MoodleLaunch.CLAIM + "context"),
+				claims -> claims.remove(MoodleLaunch.CLAIM + "resource_link"),
+				claims -> claims.put(MoodleLaunch.CLAIM + "context", "not a map"),
+				claims -> claims.put(MoodleLaunch.CLAIM + "resource_link", List.of("resource-1")),
+				claims -> claims.put(MoodleLaunch.CLAIM + "context", Map.of()),
+				claims -> claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of()),
+				claims -> claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", " ")),
+				claims -> claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", "")),
+				claims -> claims.put(MoodleLaunch.CLAIM + "context", Map.of("id", 123)),
+				claims -> claims.put(MoodleLaunch.CLAIM + "resource_link", Map.of("id", 456)));
 	}
 
 	private void begin(boolean shared) {
@@ -298,6 +331,12 @@ class MoodleLaunchTest {
 
 	private static Assignment assignment(String id, String courseId, String resourceId) {
 		return new Assignment(id, "Task", "school/template", "prefix-" + id, "main", null, "assignment-key", courseId, resourceId);
+	}
+
+	private static MoodleLaunch configured(ClassroomConfig config) {
+		NimbusJwtDecoder decoder = NimbusJwtDecoder.withPublicKey((RSAPublicKey) key.getPublic()).build();
+		decoder.setJwtValidator(JwtValidators.createDefaultWithIssuer(ISSUER));
+		return new MoodleLaunch(config, PUBLIC_URL, ISSUER, "client", "deployment", ISSUER + "/auth", decoder);
 	}
 
 	private String signed(KeyPair signingKey) throws Exception {

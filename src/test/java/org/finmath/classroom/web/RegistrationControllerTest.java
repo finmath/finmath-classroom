@@ -379,13 +379,15 @@ class RegistrationControllerTest {
 	@ValueSource(strings = { "/accept/lecture/task", "/lti/entry" })
 	void testMoodleFormPostCompletesOnlyInOriginalBrowserAndIdentityCannotBeOverridden(String targetPath) throws Exception {
 		Jwt[] token = new Jwt[1];
-		MoodleLaunch moodle = new MoodleLaunch(config, "https://class.example", "https://moodle.example", "client", "deployment",
+		ClassroomConfig unmapped = new ClassroomConfig(List.of(new Lecture("lecture", "Lecture", "school", "staff", "lecture-key", List.of(),
+				List.of(new Assignment("task", "Task", "school/template", "prefix", "main", null, "assignment-key", null, null)))));
+		MoodleLaunch moodle = new MoodleLaunch(unmapped, "https://class.example", "https://moodle.example", "client", "deployment",
 				"https://moodle.example/auth", value -> token[0]);
 		mvc = MockMvcBuilders.standaloneSetup(new RegistrationController(registration, github, "https://class.example", Optional.of(moodle))).build();
 		MockHttpSession session = session();
 		MvcResult login = mvc.perform(get("/lti/login").session(session).param("iss", "https://moodle.example").param("login_hint", "hint")
 				.param("target_link_uri", "https://class.example" + targetPath)
-				.param("classroom_assignment", "forged-task")).andExpect(status().isSeeOther()).andReturn();
+				.param("classroom_lecture", "other").param("classroom_assignment", "forged-task")).andExpect(status().isSeeOther()).andReturn();
 		Map<String, List<String>> parameters = UriComponentsBuilder.fromUri(URI.create(login.getResponse().getHeader("Location"))).build().getQueryParams();
 		String state = parameters.get("state").get(0);
 		token[0] = Jwt.withTokenValue("signed").header("alg", "RS256").issuer("https://moodle.example").subject("moodle-42")
@@ -395,10 +397,11 @@ class RegistrationControllerTest {
 				.claim(MoodleLaunch.CLAIM + "version", "1.3.0").claim(MoodleLaunch.CLAIM + "target_link_uri", "https://class.example" + targetPath)
 				.claim(MoodleLaunch.CLAIM + "roles", List.of("http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"))
 				.claim(MoodleLaunch.CLAIM + "custom", Map.of("classroom_lecture", "lecture", "classroom_assignment", "task"))
-				.claim(MoodleLaunch.CLAIM + "context", Map.of("id", "course-1")).claim(MoodleLaunch.CLAIM + "resource_link", Map.of("id", "resource-1")).build();
+				.claim(MoodleLaunch.CLAIM + "context", Map.of("id", "new-course")).claim(MoodleLaunch.CLAIM + "resource_link", Map.of("id", "new-activity")).build();
 		// The cross-site POST intentionally has no session cookie.
 		String encoded = new PlainJWT(new JWTClaimsSet.Builder().issueTime(Date.from(Instant.now())).build()).serialize();
-		mvc.perform(post("/lti/launch").param("state", state).param("id_token", encoded)).andExpect(status().isSeeOther());
+		mvc.perform(post("/lti/launch").param("state", state).param("id_token", encoded)
+				.param("classroom_lecture", "other").param("classroom_assignment", "forged-task")).andExpect(status().isSeeOther());
 		mvc.perform(get("/lti/complete").param("state", state)).andExpect(status().isForbidden());
 		mvc.perform(get("/lti/complete").session(session).param("state", state)).andExpect(status().isSeeOther())
 				.andExpect(header().string("Location", "/accept/lecture/task"));

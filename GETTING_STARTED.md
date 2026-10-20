@@ -99,15 +99,14 @@ Use a new directory so the offline trial's imported settings remain separate:
 ```
 
 **Edit the configuration before importing it.** The database freezes repository
-ownership, template, naming, branch, deadline, staff team and Moodle mapping.
+ownership, template, naming, branch, deadline, staff team and any legacy Moodle mapping.
 
 - In `local/pilot/lectures/numerical-methods/lecture.json`, set your `organization`,
   an existing `staffTeam` slug (or `null`), and a random `registrationKey`. For a
   simple pilot, replace the sample `students` array with `[]`.
 - In `local/pilot/lectures/numerical-methods/assignments/example-exercise/assignment.json`,
   set an enabled, reviewed `template`, a new `repositoryPrefix`, its default `branch`,
-  and another random `registrationKey`. Remove both `moodleCourseId` and
-  `moodleResourceId` for this standalone pilot. Leave `deadline` absent initially.
+  and another random `registrationKey`. Leave `deadline` absent initially.
 
 The template's committed contents will be copied. Use a template containing only
 the material the test student should receive.
@@ -197,12 +196,20 @@ GitHub sign-in; students still confirm acceptance. Distribute the link inside
 your course, as it contains the shared keys. See
 [prefilling registration keys](docs/registration.md#prefilling-registration-keys).
 
-Signed identity requires an LTI 1.3 External tool and its verified course/activity
-mapping. Follow the [Moodle setup reference](docs/registration.md) once the public
-host and platform registration are available. Import the actual mapping before
-using that assignment. Adding a mapping to an already imported pilot assignment
-requires a deliberate migration; a fresh assignment ID and repository prefix are
-the simpler choice for a new pilot. Restart the service after configuration changes.
+Signed identity requires an LTI 1.3 External tool. Follow the
+[Moodle setup reference](docs/registration.md#moodle-launch) once the public host
+and platform registration are available. Reuse one tool with the `/lti/entry`
+Tool URL, and set these custom parameters on each activity:
+
+```text
+classroom_lecture=numerical-methods
+classroom_assignment=example-exercise
+```
+
+These signed parameters select the imported assignment. No Moodle course or
+activity IDs need to be added to its configuration, and existing assignments need
+no data migration. Restart the service after configuring the trusted platform's
+environment variables, then test with a learner account.
 
 Registration does not yet collect submissions or perform authoritative final grading.
 See the [roadmap](docs/roadmap.md) for shared feedback workflows, result collection

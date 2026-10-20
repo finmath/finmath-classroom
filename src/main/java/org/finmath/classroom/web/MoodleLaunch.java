@@ -57,8 +57,7 @@ public final class MoodleLaunch {
 		}
 		boolean sharedTarget = (publicUrl + ENTRY_PATH).equals(target);
 		boolean knownTarget = config.lectures().stream().anyMatch(lecture -> lecture.assignments().stream()
-				.anyMatch(assignment -> assignment.moodleCourseId() != null && assignment.moodleResourceId() != null
-						&& (sharedTarget || target(lecture.id(), assignment.id()).equals(target))));
+				.anyMatch(assignment -> sharedTarget || target(lecture.id(), assignment.id()).equals(target)));
 		if(!knownTarget) {
 			throw new IllegalArgumentException("Moodle target is not configured for an assignment");
 		}
@@ -117,8 +116,8 @@ public final class MoodleLaunch {
 		if(roles == null || !roles.contains("http://purl.imsglobal.org/vocab/lis/v2/membership#Learner")) {
 			throw new IllegalArgumentException("Open this activity as a student to accept the assignment");
 		}
-		Map<String, Object> context = jwt.getClaimAsMap(CLAIM + "context");
-		Map<String, Object> resource = jwt.getClaimAsMap(CLAIM + "resource_link");
+		String courseId = claimId(jwt, "context");
+		String resourceId = claimId(jwt, "resource_link");
 		boolean sharedTarget = (publicUrl + ENTRY_PATH).equals(login.target());
 		Object rawCustom = jwt.getClaims().get(CLAIM + "custom");
 		if(jwt.getClaims().containsKey(CLAIM + "custom") && !(rawCustom instanceof Map<?, ?>)) {
@@ -128,7 +127,8 @@ public final class MoodleLaunch {
 		boolean hasSelector = custom.containsKey("classroom_lecture") || custom.containsKey("classroom_assignment");
 		Object selectedLecture = custom.get("classroom_lecture");
 		Object selectedAssignment = custom.get("classroom_assignment");
-		if((sharedTarget || hasSelector) && (!(selectedLecture instanceof String lectureId) || lectureId.isBlank()
+		boolean selectByCustom = sharedTarget || hasSelector;
+		if(selectByCustom && (!(selectedLecture instanceof String lectureId) || lectureId.isBlank()
 				|| !(selectedAssignment instanceof String assignmentId) || assignmentId.isBlank())) {
 			throw new IllegalArgumentException("Moodle launch must supply classroom_lecture and classroom_assignment as custom parameters.");
 		}
@@ -136,18 +136,21 @@ public final class MoodleLaunch {
 		for(Lecture lecture : config.lectures()) {
 			for(Assignment assignment : lecture.assignments()) {
 				boolean targetMatches = sharedTarget || target(lecture.id(), assignment.id()).equals(login.target());
-				boolean selectorMatches = !(sharedTarget || hasSelector)
+				boolean selectorMatches = !selectByCustom
 						|| lecture.id().equals(selectedLecture) && assignment.id().equals(selectedAssignment);
-				if(targetMatches && selectorMatches && context != null && resource != null
-						&& assignment.moodleCourseId() != null && assignment.moodleCourseId().equals(context.get("id"))
-						&& assignment.moodleResourceId().equals(resource.get("id"))) {
+				// Signed selectors authorize routing within the trusted deployment. Frozen
+				// activity mappings remain supported for older direct launches without selectors.
+				boolean legacyMappingMatches = assignment.moodleCourseId() != null && assignment.moodleCourseId().equals(courseId)
+						&& resourceId.equals(assignment.moodleResourceId());
+				if(targetMatches && selectorMatches && (selectByCustom || legacyMappingMatches)) {
 					String name = jwt.getClaimAsString("name");
 					launch = new Launch(lecture.id(), assignment.id(), new Identity("moodle:" + issuer, jwt.getSubject(), name));
 				}
 			}
 		}
 		if(launch == null) {
-			throw new IllegalArgumentException("Moodle course or activity does not match this assignment");
+			throw new IllegalArgumentException(selectByCustom ? "Moodle custom parameters do not select a configured assignment"
+					: "Moodle course or activity does not match this assignment");
 		}
 		synchronized(this) {
 			if(!pending.replace(state, login, new Pending(login.nonce(), login.target(), login.expires(), launch))) {
@@ -167,5 +170,13 @@ public final class MoodleLaunch {
 
 	private String target(String lectureId, String assignmentId) {
 		return publicUrl + "/accept/" + lectureId + "/" + assignmentId;
+	}
+
+	private static String claimId(Jwt jwt, String claim) {
+		Object value = jwt.getClaims().get(CLAIM + claim);
+		if(!(value instanceof Map<?, ?> fields) || !(fields.get("id") instanceof String id) || id.isBlank()) {
+			throw new IllegalArgumentException("Moodle launch must include a valid " + claim + " id");
+		}
+		return id;
 	}
 }

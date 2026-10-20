@@ -31,10 +31,11 @@ independent of the lecture repositories and generated IntelliJ workspace.
 
 Both keys must be supplied for standalone registration. Omitting either key or
 setting it to `null` disables that route. Replace example keys with independently
-generated random values. For Moodle, supply `moodleCourseId` and `moodleResourceId`
-together before the first import. Omit both for standalone registration. Adding
-a Moodle mapping after import requires a reviewed migration or a new assignment
-ID and repository prefix. Use a separate disposable data directory for experiments.
+generated random values. Moodle activities select an existing assignment through
+signed custom parameters; no Moodle course or activity IDs are needed in these
+files. The optional `moodleCourseId` and `moodleResourceId` fields are retained for
+legacy assignment-specific launches, as described below. Use a separate disposable
+data directory for experiments.
 
 ```sh
 java -jar target/finmath-classroom.jar registration check --data /private/service/classroom
@@ -49,8 +50,8 @@ java -jar target/finmath-classroom.jar registration list --data /private/service
 existing database read-only and emit private administrative JSON. Add `--format table`
 to `list` for a readable table with the student IDs used by administrative commands.
 Listings omit keys.
-Edit organization, template, staff team, branch, prefix, deadline and any Moodle
-mapping **before the first import**: these values are frozen in the database.
+Edit organization, template, staff team, branch, prefix, deadline and any legacy
+Moodle mapping **before the first import**: these values are frozen in the database.
 
 `import` creates Java SQLite schema version 1 and pins supplied usernames to numeric
 GitHub IDs using read-only API calls. A roster without GitHub usernames imports offline.
@@ -102,9 +103,10 @@ instead of a new form. Avoid deleting a working acceptance merely to test prefil
 its GitHub repository would remain and could collide with a new registration.
 
 Import freezes organization, staff team, template, repository prefix, branch,
-deadline, and Moodle activity mapping. Use new assignment IDs and prefixes for new
-terms. Changing frozen settings requires a reviewed database migration. Titles and
-keys can change without reassigning ownership; restart the server to reload them.
+deadline, and any legacy Moodle activity mapping. Use new assignment IDs and
+prefixes for new terms. Changing frozen settings requires a reviewed database
+migration. Titles and keys can change without reassigning ownership; restart the
+server to reload them.
 
 ## Server configuration
 
@@ -333,30 +335,36 @@ Moodle sends these selectors in the signed LTI
 They are assignment selectors, not registration keys, and do not belong in the
 Tool URL's query string.
 Each activity can select a different assignment while reusing `/lti/entry` and the
-same tool registration. Existing activities whose target is an assignment-specific
-`/accept/lecture-id/assignment-id` URL remain supported.
-
-Before import, set `moodleCourseId` and `moodleResourceId` to the actual signed
-context and resource-link IDs for that activity; do not assume browser URL numbers
-are these identifiers. Ask the Moodle administrator for the activity's resource-link
-ID; it differs from the course-module ID in an activity URL, as shown in Moodle's
-[launch construction](https://github.com/moodle/moodle/blob/MOODLE_501_STABLE/public/mod/lti/locallib.php).
-Both values must be supplied together and are frozen at import. The custom
-parameters select the assignment; they do not replace its signed course/activity
-checks. Adding or changing a mapping on an imported assignment requires a reviewed
-migration or a new assignment ID and repository prefix. The service still trusts
-one configured Moodle issuer, client ID and deployment ID.
+same tool registration. The selected lecture and assignment must exist in the
+server's imported configuration. There is no per-activity server mapping: creating
+or copying a Moodle activity does not require inspecting page source, adding
+Moodle IDs to `assignment.json`, or reimporting an existing assignment. An existing
+assignment can use this route after the server has been updated to a version that
+supports routing by signed custom parameters. Existing registrations are preserved.
 
 Launch validation checks signature, issuer, audience, deployment, timestamps,
-nonce, browser state, learner role, and mapped course/activity. For `/lti/entry`,
-the assignment comes from the verified custom claim. Students click the named
-External tool activity, receive their Moodle-verified identity and released name,
+nonce, browser state and learner role. Course context and resource-link IDs must be
+present as nonblank strings in the signed launch but do not select the assignment.
+For `/lti/entry`, both assignment selectors must be present as nonblank strings in
+the verified custom claim. Users authorized to configure activities for the trusted
+Moodle tool can select any configured classroom assignment. Registration keys
+protect standalone entry and are not required for these signed launches.
+
+Students click the named External tool activity, receive their Moodle-verified
+identity and released name,
 then connect GitHub and confirm acceptance without registration keys. The released
 name cannot be changed through the acceptance form; if Moodle omits it, the form
 asks for a self-declared name. Pilot with a learner account: an instructor-only
 launch is rejected. Tests use local fixtures; validate your own Moodle deployment
 and its privacy/registration settings in a pilot.
 See also [Moodle External tools](https://docs.moodle.org/502/en/LTI_External_tools).
+
+Legacy activities whose target is `/accept/lecture-id/assignment-id` and which
+omit both custom selectors remain supported. Only this route requires
+`moodleCourseId` and `moodleResourceId` together in `assignment.json` and matches
+the signed course context and resource-link IDs against them. These legacy fields
+remain frozen at import and do not restrict launches with explicit signed
+selectors. Prefer the shared tool URL and custom parameters for new activities.
 
 ## Recovery
 

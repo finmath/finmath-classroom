@@ -48,21 +48,20 @@ link: anyone following it can sign in and accept the demo. Its public keys apply
 only to this demo; existing course keys must not be reused.
 
 The server configuration belongs in ignored `local/teaching/lectures`, with an
-empty roster and a distinct repository prefix. The demo initially has no Moodle
-mapping. An optional LTI 1.3 mapping lets a Moodle activity launch the same assignment
-through the shared `/lti/entry` target, using the activity's `classroom_lecture` and
-`classroom_assignment` custom parameters. The public link continues to supply
-registration keys. Import the configuration and restart the application before
+empty roster and a distinct repository prefix. Once the server trusts a Moodle
+deployment, an LTI 1.3 activity can launch the same assignment through the shared
+`/lti/entry` target, using the activity's `classroom_lecture` and
+`classroom_assignment` custom parameters. No per-activity IDs or server mappings
+are needed. The public link continues to supply registration keys. Import the
+configuration and restart the application before
 publishing the demo link.
 Building or publishing the Maven site does not deploy the classroom configuration.
 The private deployment instructions are in `local/teaching/demo-setup.md`.
 
-Moodle mappings are frozen when an assignment is imported. Adding one to an
-already imported demo requires a reviewed configuration migration that preserves
-its repository settings and existing acceptances; changing JSON and reimporting
-alone is insufficient. Test with a learner account that has not accepted the demo
-to inspect the Moodle name handover. Existing acceptances retain their recorded
-name and repository.
+An already imported demo needs no data migration to use the shared Moodle route.
+Update the server application if it predates routing by signed custom parameters.
+Test with a learner account that has not accepted the demo to inspect the Moodle
+name handover. Existing acceptances retain their recorded name and repository.
 
 `scripts/check-site.sh` permits only the exact public demo link in `demo.html`.
 Other registration-key links remain prohibited. When changing the demo URL,
