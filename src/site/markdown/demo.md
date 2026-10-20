@@ -86,3 +86,5 @@ describes collection and administration.
 
 The [getting-started guide](https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md)
 covers the application build, example configuration and setup of a live assignment.
+
+![Automatic workflow after a push to the repo](images/finmath-classroom-action-example.png))
