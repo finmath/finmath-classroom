@@ -27,8 +27,14 @@ public interface GitHubGateway {
 	/** Reads a repository by owner/name. */
 	Repository repository(String fullName) throws IOException;
 
-	/** Creates a private independent copy of the template's default branch. Never retries creation. */
-	Repository create(String template, String organization, String name) throws IOException;
+	/** Publishes the template's current tree onto the assignment's durable, independent starter history. */
+	String publishSnapshot(Repository template, String branch, String publication) throws IOException;
+
+	/** Creates an empty private independent repository. Never retries creation. */
+	Repository create(String organization, String name) throws IOException;
+
+	/** Initializes an empty repository from a pinned starter commit; never overwrites existing work. */
+	void initializeSnapshot(String repository, String branch, String publication, String commit) throws IOException;
 
 	/** Grants the organization's staff team maintain access to the repository. */
 	void grantStaff(String organization, String team, String repository) throws IOException;

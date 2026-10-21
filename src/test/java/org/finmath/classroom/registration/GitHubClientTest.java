@@ -5,6 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
@@ -73,23 +76,41 @@ class GitHubClientTest {
 	}
 
 	@Test
-	void testCreatePrivateCopyOfDefaultBranch() throws IOException {
+	void testCreateEmptyPrivateRepository() throws IOException {
 		responses.add(new Response(201, REPOSITORY));
-		GitHubGateway.Repository repository = github.create("templates/exercise", "teaching", "course-42");
+		GitHubGateway.Repository repository = github.create("teaching", "course-42");
 		assertEquals(123, repository.id());
 		assertEquals("https://github.com/teaching/course-42", repository.url());
 		assertTrue(repository.privateRepository());
 		assertFalse(repository.fork());
 		Request request = requests.get(0);
 		assertEquals("POST", request.method());
-		assertEquals("/repos/templates/exercise/generate", request.path());
+		assertEquals("/orgs/teaching/repos", request.path());
 		assertEquals("Bearer provisioning-secret", request.authorization());
 		assertEquals("application/json", request.contentType());
 		JsonNode payload = JsonFiles.MAPPER.readTree(request.body());
-		assertEquals("teaching", payload.path("owner").asString());
 		assertEquals("course-42", payload.path("name").asString());
 		assertTrue(payload.path("private").asBoolean());
-		assertFalse(payload.path("include_all_branches").asBoolean());
+		assertFalse(payload.path("auto_init").asBoolean());
+		assertFalse(payload.has("include_all_branches"));
+	}
+
+	@Test
+	void testSnapshotTransportUsesConfiguredGithubRepositoriesAndSetsDefaultBranch() throws IOException {
+		StarterSnapshots snapshots = mock(StarterSnapshots.class);
+		GitHubClient client = new GitHubClient("provisioning-secret", "client-id", "oauth-secret", base, base, snapshots);
+		String publication = "a".repeat(64);
+		String commit = "b".repeat(40);
+		URI source = URI.create("https://github.com/templates/exercise.git");
+		when(snapshots.publish(publication, source, "main", 1)).thenReturn(commit);
+		assertEquals(commit, client.publishSnapshot(new GitHubGateway.Repository(1, "templates/exercise", false, false, true, "main"), "main", publication));
+		responses.add(new Response(200, REPOSITORY));
+		client.initializeSnapshot("teaching/course-42", "main", publication, commit);
+		verify(snapshots).initialize(publication, URI.create("https://github.com/teaching/course-42.git"), "main", commit);
+		assertEquals(1, requests.size());
+		assertEquals("PATCH", requests.get(0).method());
+		assertEquals("/repos/teaching/course-42", requests.get(0).path());
+		assertEquals("main", JsonFiles.MAPPER.readTree(requests.get(0).body()).path("default_branch").asString());
 	}
 
 	@Test
@@ -179,7 +200,7 @@ class GitHubClientTest {
 	@ValueSource(ints = {301, 302, 401, 403, 404, 422, 429, 500})
 	void testFailuresNeverRetryOrExposeResponseSecrets(int status) {
 		responses.add(new Response(status, "{\"message\":\"provisioning-secret oauth-secret student_token\"}"));
-		GitHubException exception = assertThrows(GitHubException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		GitHubException exception = assertThrows(GitHubException.class, () -> github.create("teaching", "course-42"));
 		assertEquals(Operation.CREATE_REPOSITORY, exception.operation());
 		assertEquals(Category.HTTP_STATUS, exception.category());
 		assertEquals(status, exception.httpStatus());
@@ -200,7 +221,8 @@ class GitHubClientTest {
 			switch(operation) {
 				case ACCOUNT_LOOKUP -> github.user("student");
 				case REPOSITORY_LOOKUP -> github.repository("teaching/course-42");
-				case CREATE_REPOSITORY -> github.create("templates/exercise", "teaching", "course-42");
+				case CREATE_REPOSITORY -> github.create("teaching", "course-42");
+				case CONFIGURE_REPOSITORY -> github.configureBranch("teaching/course-42", "main");
 				case GRANT_STAFF -> github.grantStaff("teaching", "staff", "teaching/course-42");
 				case INVITE_STUDENT -> github.invite("teaching/course-42", "student");
 				case OAUTH_TOKEN_EXCHANGE, OAUTH_USER_LOOKUP -> github.authenticate("private-code", "https://classroom.example/callback", "private-verifier");
@@ -220,7 +242,7 @@ class GitHubClientTest {
 		responses.add(new Response(200, withoutFlag));
 		assertFalse(github.repository("teaching/course-42").template());
 		responses.add(new Response(201, withoutFlag));
-		GitHubGateway.Repository created = github.create("templates/exercise", "teaching", "course-42");
+		GitHubGateway.Repository created = github.create("teaching", "course-42");
 		assertFalse(created.template());
 		assertEquals(123, created.id());
 		assertTrue(created.privateRepository());
@@ -230,7 +252,7 @@ class GitHubClientTest {
 	@ValueSource(strings = {"null", "\"false\"", "1"})
 	void testPresentTemplateFlagMustStillBeBoolean(String flag) {
 		responses.add(new Response(201, REPOSITORY.replace("\"is_template\":false", "\"is_template\":" + flag)));
-		GitHubException failure = assertThrows(GitHubException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		GitHubException failure = assertThrows(GitHubException.class, () -> github.create("teaching", "course-42"));
 		assertEquals(Operation.CREATE_REPOSITORY, failure.operation());
 		assertEquals(Category.INVALID_RESPONSE, failure.category());
 		assertNull(failure.httpStatus());
@@ -253,16 +275,16 @@ class GitHubClientTest {
 		responses.add(new Response(200, REPOSITORY.replace("teaching/course-42", "other/course-42")));
 		assertThrows(IOException.class, () -> github.repository("teaching/course-42"));
 		responses.add(new Response(201, REPOSITORY.replace("\"private\":true", "\"private\":false")));
-		assertThrows(IOException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		assertThrows(IOException.class, () -> github.create("teaching", "course-42"));
 		responses.add(new Response(201, REPOSITORY.replace("\"fork\":false", "\"fork\":true")));
-		assertThrows(IOException.class, () -> github.create("templates/exercise", "teaching", "course-42"));
+		assertThrows(IOException.class, () -> github.create("teaching", "course-42"));
 	}
 
 	@Test
 	void testRejectsPathInjectionBeforeSendingCredentials() {
 		assertThrows(IllegalArgumentException.class, () -> github.user("../user"));
 		assertThrows(IllegalArgumentException.class, () -> github.repository("teaching/../other"));
-		assertThrows(IllegalArgumentException.class, () -> github.create("templates/exercise", "teaching", ".."));
+		assertThrows(IllegalArgumentException.class, () -> github.create("teaching", ".."));
 		assertThrows(IllegalArgumentException.class, () -> github.grantStaff("teaching", "staff", "other/course-42"));
 		assertThrows(IllegalArgumentException.class, () -> github.invite("teaching/course-42", "student?token=private"));
 		assertTrue(requests.isEmpty());

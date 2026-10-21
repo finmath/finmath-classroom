@@ -3,7 +3,10 @@ package org.finmath.classroom.registration;
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.time.Clock;
+import java.util.HexFormat;
+import java.util.Locale;
 
 import org.finmath.classroom.registration.ClassroomConfig.Assignment;
 import org.finmath.classroom.registration.ClassroomConfig.Lecture;
@@ -78,7 +81,7 @@ public final class RegistrationService {
 		return store.finish(enrollment, "retryable", "Repository reconciled by instructor; retry setup to finish access grants.");
 	}
 
-	/** Accepts once, creates a private template copy and resumes recorded staff/invitation failures. */
+	/** Accepts once, provisions a private starter snapshot and resumes recorded initialization/access failures. */
 	public Enrollment accept(String lectureId, String assignmentId, Identity identity, User account,
 			String lectureKey, String assignmentKey, boolean declaration) throws IOException {
 		Lecture lecture = config.lecture(lectureId);
@@ -131,20 +134,29 @@ public final class RegistrationService {
 				if(!template.template() || !template.fullName().equalsIgnoreCase(assignment.template()) || !template.defaultBranch().equals(assignment.branch())) {
 					throw new IllegalArgumentException("The instructor must enable the template and check its default branch.");
 				}
+				if(enrollment.starterCommit() == null) {
+					String commit = github.publishSnapshot(template, assignment.branch(), publication(lecture, assignment));
+					enrollment = store.recordStarter(enrollment, commit);
+				}
 				// Recheck after the read-only lookup, immediately before the irreversible API call.
 				if(assignment.deadline() != null && !clock.instant().isBefore(assignment.deadline())) {
 					throw new IllegalArgumentException("The assignment deadline has passed.");
 				}
 				creationAttempted = true;
-				Repository repository = github.create(assignment.template(), lecture.organization(), enrollment.repository().substring(lecture.organization().length() + 1));
+				Repository repository = github.create(lecture.organization(), enrollment.repository().substring(lecture.organization().length() + 1));
 				checkRepository(repository, enrollment.repository(), null);
-				store.recordRepository(enrollment, repository.id());
+				enrollment = store.recordRepository(enrollment, repository.id());
 				repositoryRecorded = true;
 			} else {
 				Repository repository = github.repository(enrollment.repository());
 				identityMismatch = true;
 				checkRepository(repository, enrollment.repository(), enrollment.repositoryId());
 				identityMismatch = false;
+			}
+			// Legacy enrollments have no pinned starter and must never have their histories rewritten.
+			if(enrollment.starterCommit() != null && !enrollment.starterInitialized()) {
+				github.initializeSnapshot(enrollment.repository(), assignment.branch(), publication(lecture, assignment), enrollment.starterCommit());
+				enrollment = store.initializedStarter(enrollment);
 			}
 			if(lecture.staffTeam() != null) github.grantStaff(lecture.organization(), lecture.staffTeam(), enrollment.repository());
 			boolean pending = github.invite(enrollment.repository(), account.login());
@@ -159,6 +171,17 @@ public final class RegistrationService {
 				exception.addSuppressed(failure);
 			}
 			throw exception;
+		}
+	}
+
+	/** Stable, secret-free namespace; every student in the assignment shares its publication lineage. */
+	static String publication(Lecture lecture, Assignment assignment) {
+		String identity = String.join("\0", lecture.id(), assignment.id(), lecture.organization().toLowerCase(Locale.ROOT),
+				assignment.template().toLowerCase(Locale.ROOT), assignment.repositoryPrefix(), assignment.branch());
+		try {
+			return HexFormat.of().formatHex(MessageDigest.getInstance("SHA-256").digest(identity.getBytes(StandardCharsets.UTF_8)));
+		} catch(NoSuchAlgorithmException exception) {
+			throw new IllegalStateException("SHA-256 is unavailable.", exception);
 		}
 	}
 

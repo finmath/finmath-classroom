@@ -6,6 +6,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -87,8 +88,9 @@ class RegistrationIntegrationTest {
 		when(github.authenticate(anyString(), anyString(), anyString())).thenReturn(account);
 		when(github.user("alice")).thenReturn(account);
 		AtomicReference<Repository> createdRepository = new AtomicReference<>();
-		when(github.create(eq("org/template"), eq("org"), anyString())).thenAnswer(invocation -> {
-			String name = invocation.getArgument(2);
+		when(github.publishSnapshot(any(Repository.class), eq("main"), anyString())).thenReturn("b".repeat(40));
+		when(github.create(eq("org"), anyString())).thenAnswer(invocation -> {
+			String name = invocation.getArgument(1);
 			assertTrue(name.matches("term-task-[0-9a-f]{8}-alice"));
 			Repository repository = new Repository(101, "org/" + name, true, false, false, "main");
 			createdRepository.set(repository);
@@ -162,6 +164,7 @@ class RegistrationIntegrationTest {
 		assertEquals(repository.id(), reopened.list(null, null).get(0).repositoryId());
 		verify(github, times(2)).grantStaff("org", "staff", repository.fullName());
 		verify(github, times(2)).invite(repository.fullName(), "alice");
-		verify(github, times(1)).create(anyString(), anyString(), anyString());
+		verify(github, times(1)).create(anyString(), anyString());
+		verify(github, times(1)).initializeSnapshot(eq(repository.fullName()), eq("main"), anyString(), eq("b".repeat(40)));
 	}
 }

@@ -33,6 +33,7 @@ independent of the lecture repositories and generated IntelliJ workspace.
         example-exercise/
           assignment.json
   classroom.db                 Created by registration import
+  snapshots/                   Private published starter Git histories
 ```
 
 `lecture.json` supplies `title`, `organization`, optional `staffTeam`, optional
@@ -67,11 +68,18 @@ Edit organization, template, staff team, branch, prefix, deadline and any option
 explicit Moodle activity mapping **before the first import**: these values are
 frozen in the database.
 
-`import` creates Java SQLite schema version 1 and pins supplied usernames to numeric
-GitHub IDs using read-only API calls. A roster without GitHub usernames imports offline.
+`import` creates Java SQLite schema version 2, or explicitly migrates an existing
+Java version-1 database, and pins supplied usernames to numeric GitHub IDs using
+read-only API calls. A roster without GitHub usernames imports offline.
 The database uses owner-only permissions (`0600` on POSIX systems). Back up the
 private directory while the service is stopped. Databases from the retired
 prototype are incompatible; initialize a new database with `registration import`.
+
+For a schema-1 upgrade, stop the service and collector, back up the entire data
+directory, update the provisioning token permissions below, then import the same
+configuration with the new JAR before restarting. Existing repositories have no
+recorded starter commit and retain their history. See the
+[deployment upgrade procedure](deployment.md#upgrade-registration-schema-1).
 
 Unassigned roster names cannot be claimed by typing a matching name. A student
 without a prebound account creates their own registration record; shared-key names
@@ -132,7 +140,7 @@ Configure these environment variables before `serve`:
 | `CLASSROOM_PUBLIC_URL` | Public HTTPS origin, e.g. `https://assignments.example.edu`; loopback HTTP is allowed for development |
 | `CLASSROOM_GITHUB_CLIENT_ID` | GitHub OAuth application's client ID for student sign-in |
 | `CLASSROOM_GITHUB_CLIENT_SECRET` | That OAuth application's client secret |
-| `CLASSROOM_GITHUB_TOKEN` | Separate instructor credential for template reads, repository creation and access grants |
+| `CLASSROOM_GITHUB_TOKEN` | Separate instructor credential for template reads, repository creation, starter pushes and access grants |
 
 ## GitHub credentials
 
@@ -156,7 +164,8 @@ Fine-grained tokens → Generate new token**.
 3. Select **All repositories** so the token covers the template and future student
    repositories. Selecting only the template would exclude the generated repositories.
 4. Under **Repository permissions**, set Administration to **Read and write**,
-   Contents to **Read-only**, and Metadata to **Read-only**.
+   Contents to **Read and write**, and Metadata to **Read-only**. Add Workflows
+   **Read and write** when the template contains `.github/workflows`.
 5. Separately, under **Organization permissions**, add **Members** and set it to
    **Read-only**. This is required when a staff team is configured. **All repositories**
    controls repository access; it does not grant organization permissions.
@@ -165,7 +174,8 @@ Fine-grained tokens → Generate new token**.
 | Category | Permission | Access |
 | --- | --- | --- |
 | Repository | Administration | Read and write |
-| Repository | Contents | Read-only |
+| Repository | Contents | Read and write |
+| Repository | Workflows | Read and write when the template contains `.github/workflows` |
 | Repository | Metadata | Read-only |
 | Organization | Members | Read-only |
 
@@ -176,8 +186,8 @@ can work while `feedback sync` receives HTTP 403. A dedicated nonblank
 collection; update the permissions of the token actually used. See the
 [collection setup](autograding.md#5-automatic-server-collection).
 
-These permissions cover
-[template generation](https://docs.github.com/en/rest/repos/repos#create-a-repository-using-a-template),
+These permissions cover template reads, starter pushes,
+[repository creation](https://docs.github.com/en/rest/repos/repos#create-an-organization-repository),
 [student invitations](https://docs.github.com/en/rest/collaborators/collaborators#add-a-repository-collaborator)
 and [staff-team grants](https://docs.github.com/en/rest/teams/teams#add-or-update-team-repository-permissions).
 
@@ -215,6 +225,25 @@ and invites the student with `write` access. Students remain outside collaborato
 The service does not change organization membership or base permissions; configure
 the organization's base permissions appropriately before a pilot.
 
+Before granting access, the service initializes the empty repository from a
+published starter snapshot. The first template tree becomes a new root commit
+`S`. When a later acceptance observes changed template files, it publishes `S'`
+as a child of `S`; the late starter receives that updated snapshot history.
+An unchanged source revision reuses the published snapshot. Original template history is excluded
+from student repositories, and the service never writes to the template.
+
+Publication uses the Java JGit library and private bare repositories under
+`DATA/snapshots/`; native Git is not required. Each enrollment pins its starter
+commit before repository creation, so retries use the same snapshot even after
+another template update. Repository IDs are saved before initialization, and a
+retry never resets an existing student's branch. Back up `snapshots/` together
+with `classroom.db`.
+
+Template edits affect later acceptances. Existing student repositories require a
+future instructor PR-sync command; it is not implemented yet. Prefix changes and
+year rollover under the same acceptance URL are also pending; imported prefixes
+remain frozen. See [remaining work](../todo.md).
+
 The acceptance error **"The instructor must enable the template and check its
 default branch"** means the template preflight failed. For shared-key acceptance,
 the registration keys have already passed validation. Check the template flag
@@ -242,8 +271,8 @@ requires instructor review; the service never silently adopts or renames it.
 
 Recorded repository names remain unchanged on retries, server restarts or username
 changes, including older names and reservations where creation has not yet finished.
-Deploying this naming change requires the updated JAR, with no database migration
-or edits to existing assignment prefixes.
+The naming rule preserves existing names and does not require edits to assignment
+prefixes. The starter-history feature requires the schema upgrade described above.
 
 Distribute `https://assignments.example.edu/accept/numerical-methods/example-exercise`
 for standalone registration. The student connects GitHub, supplies their name and
@@ -413,7 +442,7 @@ java -jar target/finmath-classroom.jar registration list \
 | --- | --- |
 | No registration | Inspect the sign-in/account lookup or local storage failure. |
 | `retryable`, no repository ID | Inspect the template lookup and preflight checks. |
-| `retryable`, recorded repository ID | Inspect repository lookup, staff access and student invitation; retry reuses the recorded repository. |
+| `retryable`, recorded repository ID | Inspect repository lookup, starter initialization, token write permissions, staff access and invitation; retry reuses the recorded repository and pinned snapshot. |
 | `invitation_pending` | Awaiting confirmed write access; refreshed by `feedback sync`. |
 | `active` | Repository write access confirmed at the last status update. |
 | `needs_attention` or persistent `creating` | Inspect the expected repository and numeric identity before reconciliation; creation may already have succeeded. |
@@ -459,8 +488,8 @@ the assignment deadline or permit changing settings frozen at import.
 ### Resume repository setup
 
 Reopen the assignment and use **Retry repository setup** to resume recorded
-staff/invitation failures after checking repository identity. Use **Refresh access
-status** after accepting a GitHub invitation. These actions require the same
+initialization or staff/invitation failures after checking repository identity.
+Use **Refresh access status** after accepting a GitHub invitation. These actions require the same
 verified GitHub account and remain subject to the deadline. Admin listings
 distinguish pending invitations, active access, retryable failures and cases
 needing inspection. Viewing the page alone does not contact GitHub or retry work.

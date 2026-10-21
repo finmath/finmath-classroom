@@ -34,8 +34,9 @@ and an acceptance declaration. Direct links require no Moodle configuration.
    suggests their account-linked lecture name or, if absent, their GitHub profile name.
 3. The student signs in with GitHub and confirms their account and the declaration
    about submitting their own work under the course rules.
-4. The service creates an independent private template copy in the teaching
-   organization, grants the staff team access and invites the student as an
+4. The service publishes the template's current files into a shared snapshot
+   history and initializes an independent private repository in the teaching
+   organization. It then grants staff access and invites the student as an
    outside collaborator with write access.
 5. SQLite records the acceptance, declaration, numeric account/repository IDs and
    provisioning progress. Students can return to their repository link; instructors
@@ -47,20 +48,27 @@ shows the saved repository and status, with retry controls when needed. Ambiguou
 creation failures require instructor review.
 Self-declared names do not prove university identity or claim a roster entry by name.
 
+The first published snapshot is a new root commit. Later template changes become
+descendant snapshots, so late starters receive the updated files and share ancestry
+with earlier students. The template's original history is excluded from student
+repositories. Existing student repositories keep their work; instructor update PRs
+and year rollover remain [planned work](todo.md).
+
 ## What is available
 
 | Capability | Status |
 | --- | --- |
 | Course and assignment configuration; optional rosters | Implemented |
 | GitHub sign-in, shared-key registration and declaration | Implemented |
-| Private template copies, staff access and student invitations | Implemented |
+| Private repositories with shared starter snapshot ancestry, staff access and invitations | Implemented |
+| Instructor update PRs and year rollover under the same acceptance URL | Planned |
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
 | Shared Maven/JUnit feedback action and versioned artifacts | Implemented |
 | Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer |
 | Verified server releases and manual server updater | Implemented |
-| Submission fetching, push/deadline tracking and source snapshots | Pending in Java |
+| Submission fetching, push/deadline tracking and submission source snapshots | Pending in Java |
 | Isolated final grader and Moodle grade return | Pending |
 
 Student-controlled workflows and reports provide feedback. Authoritative grading
@@ -91,11 +99,12 @@ Moodle is optional. The supplied adapter targets GitHub.com.
 ## Configuration and operation
 
 One Spring Boot application serves the registration pages and provides CLI tools.
-It uses Java 17, Spring MVC, SQLite/JDBC and Jackson 3. The registration logic is
+It uses Java 17, Spring MVC, SQLite/JDBC, Jackson 3 and JGit. The registration logic is
 independent of Spring, and the interface uses server-rendered HTML.
 
-A private data directory holds course configuration, the registration database and
-the separate feedback database. Configuration
+A private data directory holds course configuration, the registration database,
+published starter histories in `snapshots/` and the separate feedback database. Back
+up the entire directory together. Configuration
 uses the term `lecture` for a course and groups its assignments in subdirectories.
 Secrets, rosters and runtime data stay outside version control. Student repositories
 keep their own Git histories and builds.

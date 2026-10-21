@@ -21,7 +21,7 @@ replace both with the values for your deployment.
 | --- | --- | --- |
 | `/opt/finmath-classroom/finmath-classroom.jar` | Executable application | root |
 | `/etc/finmath-classroom/classroom.env` | Environment and GitHub credentials, mode `0600` | root |
-| `/var/lib/finmath-classroom/` | `lectures/`, `classroom.db` and optional `feedback.db`, directory mode `0700` | finmath-classroom |
+| `/var/lib/finmath-classroom/` | `lectures/`, `classroom.db`, published starter histories in `snapshots/` and optional `feedback.db`, directory mode `0700` | finmath-classroom |
 | `/etc/systemd/system/finmath-classroom.service` | Service definition | root |
 | `/etc/systemd/system/finmath-classroom-feedback.{service,timer}` | Optional feedback collector and schedule | root |
 | `/usr/local/sbin/classroom-update` | Optional manual updater from GitHub Releases | root |
@@ -450,7 +450,9 @@ pending sign-ins will need to start again.
 
 Back up `/var/lib/finmath-classroom` while both services and the feedback timer are
 stopped, plus the private environment, service/timer definitions, deployed JAR and
-Plesk proxy settings. Keep an
+Plesk proxy settings. Include `snapshots/` with `classroom.db`: its private bare Git
+repositories preserve starter ancestry and snapshots pinned by pending enrollments.
+Keep an
 off-server copy and test restoration into a separate private directory. Plesk
 website backups may not include these application paths automatically.
 
@@ -459,6 +461,29 @@ timer, make the backup, replace only the JAR, then start the web service and tim
 and repeat the health/ready and collection checks. Retain
 the previous JAR for rollback; a version with a database migration also requires
 a compatible database backup. Do not overwrite the database with an empty pilot.
+
+### Upgrade registration schema 1
+
+Starter snapshot publication requires registration schema 2. Existing schema-1
+deployments need an explicit import; the release updater does not run migrations.
+Use a maintenance window:
+
+1. Stop the web service and, if installed, the feedback timer and collector. Back
+   up the entire private data directory, environment file and previous JAR.
+2. Install the reviewed new JAR. Give the provisioning token **Contents: read and
+   write**, retaining **Administration: read and write**, **Metadata: read** and
+   **Members: read** for staff grants. Add **Workflows: read and write** for templates
+   containing `.github/workflows`.
+3. Keep the existing lecture and assignment configuration and run
+   `sudo classroom registration import`. This migrates the database while preserving
+   enrollments and existing student repository histories.
+4. Restart the web service and the previously active feedback timer. Check
+   `/ready`, list registrations and pilot a fresh acceptance before wider use.
+
+The first new acceptance creates private `snapshots/` state lazily. Later source
+changes become descendant snapshots for late starters; earlier student repositories
+are not updated automatically. Rollback to the previous JAR requires its matching
+pre-migration data backup. See [registration permissions and snapshots](registration.md#repository-access).
 
 The service runs independently of the SSH session and starts after a reboot.
 Monitor the public health endpoint, DNS resolution, backups and credential expiry.

@@ -72,7 +72,9 @@ class RegistrationServiceTest {
 		assertTrue(enrollment.repository().matches("org/term-exercise-[0-9a-f]{8}-alice"));
 		assertEquals("https://github.com/" + enrollment.repository(), enrollment.repositoryUrl());
 		assertEquals(101L, enrollment.repositoryId());
-		assertEquals(List.of("create", "staff", "invite"), github.operations);
+		assertEquals(List.of("publish", "create", "initialize", "staff", "invite"), github.operations);
+		assertEquals(github.publishedCommit, enrollment.starterCommit());
+		assertTrue(enrollment.starterInitialized());
 		assertEquals("self", enrollment.identitySource());
 		github.pending = false;
 		EnrollmentStore reopened = new EnrollmentStore(directory.resolve("classroom.db"), false);
@@ -111,6 +113,104 @@ class RegistrationServiceTest {
 		assertEquals(failed.name(), retried.name());
 		assertEquals(failed.identitySource(), retried.identitySource());
 		assertEquals(1, github.creations);
+	}
+
+	@Test void testStudentsShareStarterUntilUpdatedTemplateIsPublishedForLateStarter() throws Exception {
+		Enrollment first = accept();
+		github.current = new User(77, "bob");
+		Enrollment second = service.accept("lecture", "exercise", new Identity("self", "77", "Bob"), github.current,
+				"lecture-secret", "assignment-secret", true);
+		assertEquals(first.starterCommit(), second.starterCommit());
+		github.publishedCommit = "2".repeat(40);
+		github.current = new User(88, "charlie");
+		Enrollment late = service.accept("lecture", "exercise", new Identity("self", "88", "Charlie"), github.current,
+				"lecture-secret", "assignment-secret", true);
+		assertEquals(github.publishedCommit, late.starterCommit());
+		assertNotEquals(first.starterCommit(), late.starterCommit());
+		assertEquals(first, service.enrollment("lecture", "exercise", alice));
+		assertEquals(first.starterCommit(), github.initializedCommits.get(first.repository()));
+		assertEquals(first.starterCommit(), github.initializedCommits.get(second.repository()));
+		assertEquals(late.starterCommit(), github.initializedCommits.get(late.repository()));
+		assertEquals(3, github.publications.size());
+		assertEquals(1, Set.copyOf(github.publications).size(), "All students must use the same assignment publication lineage");
+	}
+
+	@Test void testInitializationFailureRetainsRepositoryAndPinnedSnapshotAcrossRestart() throws Exception {
+		github.failInitialization = true;
+		assertThrows(IOException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertEquals("retryable", failed.status());
+		assertEquals(101L, failed.repositoryId());
+		assertEquals("1".repeat(40), failed.starterCommit());
+		assertFalse(failed.starterInitialized());
+		assertFalse(github.operations.contains("staff"));
+		assertFalse(github.operations.contains("invite"));
+		github.failInitialization = false;
+		github.publishedCommit = "2".repeat(40);
+		github.operations.clear();
+		service = new RegistrationService(config, new EnrollmentStore(directory.resolve("classroom.db"), false), github,
+				Clock.fixed(now.plusSeconds(10), ZoneOffset.UTC));
+		Enrollment resumed = retry();
+		assertEquals(failed.repositoryId(), resumed.repositoryId());
+		assertEquals(failed.starterCommit(), resumed.starterCommit());
+		assertTrue(resumed.starterInitialized());
+		assertEquals(failed.starterCommit(), github.initializedCommits.get(resumed.repository()));
+		assertEquals(List.of("initialize", "staff", "invite"), github.operations);
+		assertEquals(1, github.creations);
+		assertEquals(1, github.publications.size());
+	}
+
+	@ParameterizedTest
+	@ValueSource(strings = {"staff", "invitation"})
+	void testAccessFailureRetryPreservesStudentWorkWithoutReinitializing(String failure) throws Exception {
+		github.failStaff = failure.equals("staff");
+		github.failInvitation = failure.equals("invitation");
+		assertThrows(IOException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertTrue(failed.starterInitialized(), "Initialization must be durable before access grants");
+		github.failStaff = false;
+		github.failInvitation = false;
+		github.studentWork = true;
+		github.operations.clear();
+		Enrollment resumed = retry();
+		assertEquals(failed.starterCommit(), resumed.starterCommit());
+		assertEquals(List.of("staff", "invite"), github.operations);
+		assertEquals(1, github.initializations);
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testLostInitializationResponseResumesIdempotentlyWithOriginalSnapshot() throws Exception {
+		github.loseInitializationResponse = true;
+		assertThrows(IOException.class, this::accept);
+		Enrollment failed = store.list(null, null).get(0);
+		assertEquals(failed.starterCommit(), github.initializedCommits.get(failed.repository()));
+		assertFalse(failed.starterInitialized());
+		github.loseInitializationResponse = false;
+		github.publishedCommit = "2".repeat(40);
+		github.operations.clear();
+		Enrollment resumed = retry();
+		assertTrue(resumed.starterInitialized());
+		assertEquals(failed.starterCommit(), resumed.starterCommit());
+		assertEquals(List.of("initialize", "staff", "invite"), github.operations);
+		assertEquals(1, github.initializationWrites);
+		assertEquals(1, github.creations);
+	}
+
+	@Test void testLegacyRepositoryWithoutStarterCommitNeverPublishesOrInitializesOnRetry() throws Exception {
+		github.failStaff = true;
+		assertThrows(IOException.class, this::accept);
+		try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db")); Statement statement = connection.createStatement()) {
+			statement.executeUpdate("UPDATE enrollments SET starter_commit=NULL,starter_initialized=0");
+		}
+		Enrollment legacy = store.list(null, null).get(0);
+		github.failStaff = false;
+		github.studentWork = true;
+		github.operations.clear();
+		Enrollment resumed = retry();
+		assertEquals(legacy.repositoryId(), resumed.repositoryId());
+		assertNull(resumed.starterCommit());
+		assertFalse(resumed.starterInitialized());
+		assertEquals(List.of("staff", "invite"), github.operations);
 	}
 
 	@Test void testNewRepositoryNameUsesPaddedHexIdAndLowercaseLogin() throws Exception {
@@ -314,12 +414,22 @@ class RegistrationServiceTest {
 		Enrollment uncertain = store.list(null, null).get(0);
 		assertEquals("needs_attention", uncertain.status());
 		assertNull(uncertain.repositoryId());
+		assertEquals("1".repeat(40), uncertain.starterCommit());
+		assertFalse(uncertain.starterInitialized());
+		github.publishedCommit = "2".repeat(40);
 		assertThrows(IllegalArgumentException.class, this::accept);
 		assertThrows(IllegalArgumentException.class, this::retry);
 		assertEquals(1, github.creations);
 		assertThrows(IllegalArgumentException.class, () -> service.reconcile("lecture", "exercise", uncertain.studentId(), 999));
+		github.operations.clear();
 		service.reconcile("lecture", "exercise", uncertain.studentId(), 101);
-		assertEquals("invitation_pending", retry().status());
+		Enrollment resumed = retry();
+		assertEquals("invitation_pending", resumed.status());
+		assertEquals(uncertain.starterCommit(), resumed.starterCommit());
+		assertTrue(resumed.starterInitialized());
+		assertEquals(uncertain.starterCommit(), github.initializedCommits.get(resumed.repository()));
+		assertEquals(List.of("initialize", "staff", "invite"), github.operations);
+		assertEquals(1, github.publications.size());
 		assertEquals(1, github.creations);
 	}
 
@@ -424,7 +534,7 @@ class RegistrationServiceTest {
 		assertEquals("self", accepted.get("identity_source"));
 		assertEquals("renamed-alice", github.invitedLogin);
 		assertEquals(1, github.creations);
-		assertEquals(List.of("create", "staff", "invite"), github.operations);
+		assertEquals(List.of("publish", "create", "initialize", "staff", "invite"), github.operations);
 	}
 
 	@Test void testDifferentAccountCannotClaimPreassignedRosterByName() throws Exception {
@@ -644,24 +754,40 @@ class RegistrationServiceTest {
 		boolean failStaff;
 		boolean failInvitation;
 		boolean loseCreationResponse;
+		boolean failInitialization;
+		boolean loseInitializationResponse;
+		boolean studentWork;
 		boolean existingCollision;
+		String publishedCommit = "1".repeat(40);
 		String invitedLogin;
 		int creations;
+		int initializations;
+		int initializationWrites;
 		CountDownLatch creationStarted;
 		CountDownLatch continueCreation;
 		CountDownLatch staffStarted;
 		CountDownLatch continueStaff;
 		final List<String> operations = new java.util.ArrayList<>();
+		final List<String> publications = new java.util.ArrayList<>();
+		final Map<String, Repository> repositories = new java.util.HashMap<>();
+		final Map<String, String> initializedCommits = new java.util.HashMap<>();
 
 		@Override public User user(String login) { return current; }
 		@Override public Repository repository(String fullName) {
-			return fullName.equals("org/template") ? new Repository(1, fullName, true, false, validTemplate, "main") : created;
+			if(fullName.equals("org/template")) return new Repository(1, fullName, true, false, validTemplate, "main");
+			return created != null && created.fullName().equals(fullName) ? created : repositories.get(fullName);
 		}
-		@Override public Repository create(String template, String organization, String name) throws IOException {
+		@Override public String publishSnapshot(Repository template, String branch, String publication) {
+			operations.add("publish");
+			publications.add(publication);
+			return publishedCommit;
+		}
+		@Override public Repository create(String organization, String name) throws IOException {
 			creations++;
 			operations.add("create");
 			if(existingCollision) throw new IOException("HTTP 422");
 			created = new Repository(100 + creations, organization + "/" + name, true, false, false, "main");
+			repositories.put(created.fullName(), created);
 			if(creationStarted != null) {
 				creationStarted.countDown();
 				try {
@@ -673,6 +799,20 @@ class RegistrationServiceTest {
 			}
 			if(loseCreationResponse) throw new IOException("Lost response after GitHub created repository");
 			return created;
+		}
+		@Override public void initializeSnapshot(String repository, String branch, String publication, String commit) throws IOException {
+			operations.add("initialize");
+			initializations++;
+			if(studentWork) throw new AssertionError("An initialized student's repository must not be initialized again");
+			if(failInitialization) throw new IOException("Starter initialization failed");
+			String existing = initializedCommits.get(repository);
+			if(existing == null) {
+				initializedCommits.put(repository, commit);
+				initializationWrites++;
+			} else if(!existing.equals(commit)) {
+				throw new IOException("Existing repository content cannot be overwritten");
+			}
+			if(loseInitializationResponse) throw new IOException("Lost response after GitHub initialized repository");
 		}
 		@Override public void grantStaff(String organization, String team, String repository) throws IOException {
 			operations.add("staff");

@@ -109,8 +109,10 @@ Moodle activity mapping.
   set an enabled, reviewed `template`, a new `repositoryPrefix`, its default `branch`,
   and another random `registrationKey`. Leave `deadline` absent initially.
 
-The template's committed contents will be copied. Use a template containing only
-the material the test student should receive.
+The template's current files will be published as a starter snapshot. The first
+snapshot is a shared root commit; later template changes create descendant
+snapshots for new acceptances. Student repositories exclude the template's original
+history. Use a template containing only the material the test student should receive.
 
 Create a [GitHub OAuth application](https://github.com/settings/applications/new)
 with homepage `http://127.0.0.1:8080` and callback:
@@ -125,6 +127,9 @@ Choose your teaching organization as **Resource owner** and **All repositories**
 so the token also covers student repositories created later. Separately, under
 **Organization permissions**, set **Members → Read-only** for staff-team grants.
 **All repositories** selects repositories; it does not grant organization permissions.
+Repository permissions require **Administration → Read and write**,
+**Contents → Read and write**, and **Metadata → Read-only**. Add
+**Workflows → Read and write** when the template contains `.github/workflows`.
 Follow the
 [provisioning-token setup](docs/registration.md#provisioning-token) for the exact
 permissions, then copy the generated token into the provisioning-token prompt below.
@@ -171,7 +176,13 @@ The enrollment includes numeric GitHub IDs, the repository URL and a status such
 The registration form is replaced by the saved status. **Retry repository setup**
 resumes eligible access failures; **Refresh access status** checks a pending
 invitation. Neither requires another declaration or creates a second copy.
-Stop the server with Ctrl+C; the database persists for the next start.
+Stop the server with Ctrl+C; the database and `local/pilot/snapshots/` persist for
+the next start. Back them up together. Updated templates affect later acceptances;
+updating existing student repositories through PRs remains planned.
+
+For an existing installation, follow the [schema upgrade instructions](docs/deployment.md#upgrade-registration-schema-1)
+before starting the new JAR. Only `registration import` migrates the registration
+database; earlier student repositories remain unchanged.
 
 To repeat a registration from scratch, use the
 [administrative delete command](docs/registration.md#let-a-student-register-again)

@@ -4,6 +4,8 @@
 - [x] Recognize GitHub secondary rate limits and resume interrupted feedback collection.
 - [ ] Validate release publication and the server updater in a complete deployment pilot.
 - [ ] Complete the [learner pilot checks](docs/roadmap.md#assistant-pilot-before-student-distribution) before broad student use.
+- [ ] Add instructor PR synchronization for a selected repository prefix/cohort, using enrolled repository IDs, a dry run, duplicate detection, conflict reporting and resumable retries. Include a verified baseline migration for repositories created before shared starter snapshots.
+- [ ] Add year rollover: a new prefix starts an internal assignment run under the same acceptance URL, preserving prior registrations, repository links and frozen settings in the database.
 
 See the [release update instructions](docs/deployment.md#update-from-a-github-release).
 Production updates remain manual; feedback-action `v1` is managed separately.

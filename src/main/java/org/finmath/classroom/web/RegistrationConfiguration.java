@@ -46,7 +46,8 @@ public class RegistrationConfiguration {
 	@Bean
 	GitHubGateway githubGateway(Environment environment) {
 		return new GitHubClient(required(environment, "classroom.github-token"),
-				required(environment, "classroom.github-client-id"), required(environment, "classroom.github-client-secret"));
+				required(environment, "classroom.github-client-id"), required(environment, "classroom.github-client-secret"),
+				Path.of(environment.getRequiredProperty("classroom.data")).resolve("snapshots"));
 	}
 
 	@Bean

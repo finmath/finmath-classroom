@@ -38,16 +38,27 @@ publish those solutions incidentally.
 - Keep secrets, rosters, databases and grade exports outside version control. Use
   fake adapters and fixtures before live operations. GitHub writes, invitations,
   deployment, pushes and credential changes require an explicit user request.
-- Registration creates independent private template copies. Students receive
+- Registration creates independent private repositories from published starter
+  snapshots. The first snapshot is parentless; new template revisions append to
+  the same assignment's publication history for late starters. Original template
+  history is excluded from pushes, and the template is never modified. JGit handles
+  Git transport without native Git. Keep publication repositories under private
+  `DATA/snapshots/` and back them up with the registration database. Students receive
   repository-specific access as outside collaborators; staff access is explicit.
   Avoid a design that requires a paid organization seat per student.
 - Pin numeric GitHub account and repository IDs. A matching name is not identity
   evidence. Preserve the acceptance declaration, retry state and deadline checks;
   never silently adopt an unknown repository or replace a recorded repository ID.
-- Java SQLite schema version 1 is independent of the retired prototype's schema.
-  Only `registration import` initializes it; server startup and read-only commands
-  require an existing imported database. Freeze ownership and assignment mapping
-  as described in the [registration reference](registration.md).
+- Java SQLite schema version 2 is independent of the retired prototype's schema.
+  Only `registration import` initializes it or migrates Java schema 1; server
+  startup and read-only commands require an existing compatible database. The
+  nullable enrollment starter commit preserves legacy repositories without
+  rewriting them. Pin a new enrollment's starter before remote creation, record
+  the numeric repository ID before initialization, and initialize before granting
+  access. Retries preserve the pinned snapshot and existing branch contents.
+  Freeze ownership and assignment mapping as described in the
+  [registration reference](registration.md). Prefix rollover and instructor update
+  PRs remain separate [TODOs](../todo.md).
 - Enrollment listings retain the name supplied at acceptance; the student listing
   retains the roster name. Account names and repository URLs can change, but stored
   numeric identities and existing repository names remain stable.
@@ -122,9 +133,10 @@ grade return are not implemented.
 | 2026-10-19 | Added Ubuntu/Plesk deployment examples, CLI and release-update helpers, verified JAR publication, and clearer registration actions. |
 | 2026-10-19 | Separated reusable documentation from private operator notes and added a Maven project site with GitHub Pages publication. |
 | 2026-10-20 | Added shared Moodle tool entry routing through signed per-activity custom parameters, without per-activity server mappings. Standalone assignment links and assignment-specific Moodle launches with explicit course/resource mappings are also supported. |
+| 2026-10-21 | Added shared starter snapshot ancestry with JGit, lazy publication of updated template revisions for late starters, and explicit registration schema-1-to-2 migration. Existing student repositories retain their history; update PRs and year rollover remain planned. Verification: 556 Java tests on Java 17 and 25, packaged configuration check, and all four offline shell checks passed. |
 
 The [README capability table](../README.md#what-is-available) describes the current
-implementation. The [roadmap](roadmap.md) covers source snapshots, authoritative
+implementation. The [roadmap](roadmap.md) covers submission source snapshots, authoritative
 final grading, Moodle grade return and remaining operational checks. Validate
 registration, invitations and feedback on each deployment using a separate learner
 account; local tests do not establish the permissions or policies of a particular

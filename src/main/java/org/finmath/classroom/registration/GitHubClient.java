@@ -9,6 +9,7 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpTimeoutException;
 import java.nio.ByteBuffer;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
@@ -23,6 +24,7 @@ import java.util.stream.Collectors;
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.registration.GitHubException.Category;
 import org.finmath.classroom.registration.GitHubException.Operation;
+import org.eclipse.jgit.transport.UsernamePasswordCredentialsProvider;
 
 import tools.jackson.databind.JsonNode;
 
@@ -37,18 +39,30 @@ public final class GitHubClient implements GitHubGateway {
 	private final String clientSecret;
 	private final URI api;
 	private final URI oauth;
+	private final StarterSnapshots snapshots;
 
 	/** Creates a GitHub.com client. Credentials are never included in exceptions or persisted here. */
 	public GitHubClient(String provisioningToken, String clientId, String clientSecret) {
 		this(provisioningToken, clientId, clientSecret, URI.create("https://api.github.com/"), URI.create("https://github.com/"));
 	}
 
+	/** Enables durable starter publication for the registration server, without invoking native Git. */
+	public GitHubClient(String provisioningToken, String clientId, String clientSecret, Path snapshotDirectory) {
+		this(provisioningToken, clientId, clientSecret, URI.create("https://api.github.com/"), URI.create("https://github.com/"),
+				new StarterSnapshots(snapshotDirectory, new UsernamePasswordCredentialsProvider("x-access-token", provisioningToken)));
+	}
+
 	GitHubClient(String provisioningToken, String clientId, String clientSecret, URI api, URI oauth) {
+		this(provisioningToken, clientId, clientSecret, api, oauth, null);
+	}
+
+	GitHubClient(String provisioningToken, String clientId, String clientSecret, URI api, URI oauth, StarterSnapshots snapshots) {
 		this.provisioningToken = provisioningToken;
 		this.clientId = clientId;
 		this.clientSecret = clientSecret;
 		this.api = api;
 		this.oauth = oauth;
+		this.snapshots = snapshots;
 	}
 
 	@Override
@@ -68,15 +82,46 @@ public final class GitHubClient implements GitHubGateway {
 	}
 
 	@Override
-	public Repository create(String template, String organization, String name) throws IOException {
+	public String publishSnapshot(Repository template, String branch, String publication) throws IOException {
+		provisioningToken();
+		return snapshots().publish(publication, gitUri(template.fullName()), branch, template.id());
+	}
+
+	@Override
+	public Repository create(String organization, String name) throws IOException {
 		Operation operation = Operation.CREATE_REPOSITORY;
 		String fullName = repositoryPath(account(organization) + "/" + name);
-		Map<String, Object> payload = Map.of("owner", organization, "name", name, "private", true, "include_all_branches", false);
-		Repository repository = readRepository(json(request(operation, api.resolve("repos/" + repositoryPath(template) + "/generate"), "POST", provisioningToken(), payload, 201), operation), fullName, operation);
+		Map<String, Object> payload = Map.of("name", name, "private", true, "auto_init", false);
+		Repository repository = readRepository(json(request(operation, api.resolve("orgs/" + organization + "/repos"), "POST", provisioningToken(), payload, 201), operation), fullName, operation);
 		if(!repository.privateRepository() || repository.fork()) {
 			throw new GitHubException(operation, Category.INVALID_RESPONSE);
 		}
 		return repository;
+	}
+
+	@Override
+	public void initializeSnapshot(String repository, String branch, String publication, String commit) throws IOException {
+		provisioningToken();
+		snapshots().initialize(publication, gitUri(repository), branch, commit);
+		configureBranch(repository, branch);
+	}
+
+	void configureBranch(String repository, String branch) throws IOException {
+		Operation operation = Operation.CONFIGURE_REPOSITORY;
+		Repository configured = readRepository(json(request(operation, api.resolve("repos/" + repositoryPath(repository)), "PATCH", provisioningToken(),
+				Map.of("default_branch", branch), 200), operation), repository, operation);
+		if(!configured.privateRepository() || configured.fork() || !configured.defaultBranch().equals(branch)) {
+			throw new GitHubException(operation, Category.INVALID_RESPONSE);
+		}
+	}
+
+	private StarterSnapshots snapshots() {
+		if(snapshots == null) throw new IllegalStateException("Starter snapshot storage is not configured.");
+		return snapshots;
+	}
+
+	private static URI gitUri(String repository) {
+		return URI.create("https://github.com/" + repositoryPath(repository) + ".git");
 	}
 
 	@Override

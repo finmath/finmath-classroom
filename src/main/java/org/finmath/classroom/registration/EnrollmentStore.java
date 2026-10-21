@@ -41,7 +41,16 @@ public final class EnrollmentStore {
 	/** Administrative enrollment view; names and declarations remain private service data. */
 	public record Enrollment(String lectureId, String assignmentId, String studentId, String name,
 			long githubId, String githubLogin, String identitySource, String acceptedAt,
-			Long repositoryId, String repository, String repositoryUrl, String status, String problem) { }
+			Long repositoryId, String repository, String repositoryUrl, String status, String problem,
+			String starterCommit, boolean starterInitialized) {
+		/** An enrollment created before shared starter snapshots were introduced. */
+		public Enrollment(String lectureId, String assignmentId, String studentId, String name,
+				long githubId, String githubLogin, String identitySource, String acceptedAt,
+				Long repositoryId, String repository, String repositoryUrl, String status, String problem) {
+			this(lectureId, assignmentId, studentId, name, githubId, githubLogin, identitySource, acceptedAt,
+					repositoryId, repository, repositoryUrl, status, problem, null, false);
+		}
+	}
 
 	private final String jdbcUrl;
 	private final IntSupplier repositoryIds;
@@ -94,10 +103,27 @@ public final class EnrollmentStore {
 					statement.execute("COMMIT");
 				}
 			}
+			int schemaVersion;
 			try(ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
-				if(!version.next() || version.getInt(1) != 1 || version.next()) {
-					throw new IllegalArgumentException("Unsupported registration database version.");
+				if(!version.next()) throw new IllegalArgumentException("Missing registration database version.");
+				schemaVersion = version.getInt(1);
+				if(version.next()) throw new IllegalArgumentException("Invalid registration database version.");
+			}
+			if(schemaVersion == 1 && initialize) {
+				statement.execute("BEGIN IMMEDIATE");
+				try {
+					statement.execute("ALTER TABLE enrollments ADD COLUMN starter_commit TEXT");
+					statement.execute("ALTER TABLE enrollments ADD COLUMN starter_initialized INTEGER NOT NULL DEFAULT 0");
+					statement.execute("UPDATE schema_version SET version=2");
+					statement.execute("COMMIT");
+					schemaVersion = 2;
+				} catch(SQLException exception) {
+					statement.execute("ROLLBACK");
+					throw exception;
 				}
+			}
+			if(schemaVersion != 2) {
+				throw new IllegalArgumentException("Unsupported registration database version; run registration import to upgrade version 1.");
 			}
 		} catch(SQLException exception) {
 			throw new IOException("Cannot open registration database; initialize a compatible database with registration import.", exception);
@@ -270,10 +296,39 @@ public final class EnrollmentStore {
 		return enrollment(connection, lecture, assignment, student);
 	}
 
-	void recordRepository(Enrollment enrollment, long repositoryId) throws IOException {
-		transaction(connection -> {
+	/** Pins the exact starter version before repository creation, so retries never select a newer version. */
+	Enrollment recordStarter(Enrollment expected, String commit) throws IOException {
+		if(commit == null || !commit.matches("[0-9a-f]{40}")) throw new IllegalArgumentException("Invalid starter commit.");
+		return transaction(connection -> {
+			Enrollment current = enrollment(connection, expected.lectureId(), expected.assignmentId(), expected.studentId());
+			if(!current.repository().equals(expected.repository()) || current.repositoryId() != null
+					|| current.starterCommit() != null && !current.starterCommit().equals(commit)) {
+				throw new IllegalArgumentException("The starter version is already pinned or the repository already exists.");
+			}
+			if(execute(connection, "UPDATE enrollments SET starter_commit=? WHERE lecture_id=? AND assignment_id=? AND student_id=? AND busy=1",
+					commit, expected.lectureId(), expected.assignmentId(), expected.studentId()) != 1) {
+				throw new IllegalArgumentException("The registration is not being provisioned.");
+			}
+			return enrollment(connection, expected.lectureId(), expected.assignmentId(), expected.studentId());
+		});
+	}
+
+	Enrollment recordRepository(Enrollment enrollment, long repositoryId) throws IOException {
+		return transaction(connection -> {
 			execute(connection, "UPDATE enrollments SET repository_id=?,status='retryable' WHERE lecture_id=? AND assignment_id=? AND student_id=?", repositoryId, enrollment.lectureId(), enrollment.assignmentId(), enrollment.studentId());
-			return null;
+			return enrollment(connection, enrollment.lectureId(), enrollment.assignmentId(), enrollment.studentId());
+		});
+	}
+
+	/** Must be durable before inviting the student; later retries must never reinitialize their work. */
+	Enrollment initializedStarter(Enrollment expected) throws IOException {
+		return transaction(connection -> {
+			if(expected.starterCommit() == null || expected.repositoryId() == null || execute(connection,
+					"UPDATE enrollments SET starter_initialized=1 WHERE lecture_id=? AND assignment_id=? AND student_id=? AND repository_id=? AND starter_commit=? AND busy=1",
+					expected.lectureId(), expected.assignmentId(), expected.studentId(), expected.repositoryId(), expected.starterCommit()) != 1) {
+				throw new IllegalArgumentException("The starter version or repository no longer matches.");
+			}
+			return enrollment(connection, expected.lectureId(), expected.assignmentId(), expected.studentId());
 		});
 	}
 
@@ -352,7 +407,7 @@ public final class EnrollmentStore {
 		String status = row.getString("status");
 		String problem = row.getString("problem");
 		if(row.getInt("busy") != 0) problem = "Operation in progress; if it persists after restart, instructor review is required.";
-		return new Enrollment(row.getString("lecture_id"), row.getString("assignment_id"), row.getString("student_id"), row.getString("accepted_name"), row.getLong("github_id"), row.getString("github_login"), row.getString("identity_source"), row.getString("accepted_at"), nullableLong(row, "repository_id"), row.getString("repository"), row.getObject("repository_id") == null ? null : "https://github.com/" + row.getString("repository"), status, problem);
+		return new Enrollment(row.getString("lecture_id"), row.getString("assignment_id"), row.getString("student_id"), row.getString("accepted_name"), row.getLong("github_id"), row.getString("github_login"), row.getString("identity_source"), row.getString("accepted_at"), nullableLong(row, "repository_id"), row.getString("repository"), row.getObject("repository_id") == null ? null : "https://github.com/" + row.getString("repository"), status, problem, row.getString("starter_commit"), row.getInt("starter_initialized") != 0);
 	}
 
 	private static Long nullableLong(ResultSet row, String column) throws SQLException {
