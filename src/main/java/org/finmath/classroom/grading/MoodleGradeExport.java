@@ -22,7 +22,7 @@ public final class MoodleGradeExport {
     private MoodleGradeExport() { }
 
     public record Summary(int exported, int skipped) { }
-    public record Grade(String username, BigDecimal points, BigDecimal sourceMax) { }
+    public record Grade(String identifier, BigDecimal points, BigDecimal sourceMax) { }
 
     /**
      * Applies points / sourceMax * moodleMax + offset, clamped to the Moodle range,
@@ -70,24 +70,36 @@ public final class MoodleGradeExport {
     /** Scales already identified grades using each result's source maximum, without an intermediate file. */
     public static Summary export(List<Grade> grades, Path output, String gradeItem,
             BigDecimal moodleMax, BigDecimal offset, int decimals) throws IOException {
+        return export(grades, output, gradeItem, moodleMax, offset, decimals, false);
+    }
+
+    static Summary exportUserIds(List<Grade> grades, Path output, String gradeItem,
+            BigDecimal moodleMax, BigDecimal offset, int decimals) throws IOException {
+        return export(grades, output, gradeItem, moodleMax, offset, decimals, true);
+    }
+
+    private static Summary export(List<Grade> grades, Path output, String gradeItem,
+            BigDecimal moodleMax, BigDecimal offset, int decimals, boolean userIds) throws IOException {
         Path destination = SafeFiles.validateOutput(output, false);
         validateNumber(moodleMax, "Moodle maximum");
         validateNumber(offset, "Offset");
         if (moodleMax.signum() <= 0) throw invalid("Moodle maximum must be positive");
         if (decimals < 0 || decimals > 6) throw invalid("Decimal places must be between 0 and 6");
         validateText(gradeItem, "Grade item");
-        if (gradeItem.equalsIgnoreCase("username")) throw invalid("Grade item must differ from username");
+        String identifierColumn = userIds ? "userid" : "username";
+        if (gradeItem.equalsIgnoreCase(identifierColumn)) throw invalid("Grade item must differ from " + identifierColumn);
         StringBuilder csv = new StringBuilder();
-        appendRow(csv, "username", gradeItem);
-        Set<String> usernames = new HashSet<>();
+        appendRow(csv, identifierColumn, gradeItem);
+        Set<String> identifiers = new HashSet<>();
         int exported = 0;
         int skipped = 0;
         for (int index = 0; index < grades.size(); index++) {
             Grade entry = grades.get(index);
             String location = "Grade record " + (index + 1);
-            validateText(entry.username(), location + " username");
-            if (!usernames.add(entry.username().toLowerCase(Locale.ROOT))) {
-                throw invalid(location + " has a duplicate username");
+            if (userIds) validateUserId(entry.identifier(), location + " Moodle user ID");
+            else validateText(entry.identifier(), location + " username");
+            if (!identifiers.add(entry.identifier().toLowerCase(Locale.ROOT))) {
+                throw invalid(location + " has a duplicate " + identifierColumn);
             }
             BigDecimal sourceMax = entry.sourceMax();
             validateNumber(sourceMax, location + " source maximum");
@@ -104,7 +116,7 @@ public final class MoodleGradeExport {
             BigDecimal numerator = points.multiply(moodleMax).add(offset.multiply(sourceMax))
                     .max(BigDecimal.ZERO).min(moodleMax.multiply(sourceMax));
             BigDecimal grade = numerator.divide(sourceMax, decimals, RoundingMode.HALF_UP).min(moodleMax);
-            appendRow(csv, entry.username(), grade.toPlainString());
+            appendRow(csv, entry.identifier(), grade.toPlainString());
             exported++;
         }
         if (exported == 0) throw invalid("CSV contains no numeric points to export");
@@ -127,6 +139,17 @@ public final class MoodleGradeExport {
         if (value == null || value.precision() > 32 || value.scale() < -9 || value.scale() > 12
                 || value.abs().compareTo(NUMBER_LIMIT) > 0) {
             throw invalid(label + " must have magnitude at most 1e9 and at most 12 decimal places");
+        }
+    }
+
+    static void validateUserId(String value, String label) {
+        if (value == null || !value.matches("[1-9][0-9]{0,18}")) {
+            throw invalid(label + " must be a positive numeric Moodle account ID; use --moodle-users for username mapping");
+        }
+        try {
+            Long.parseLong(value);
+        } catch (NumberFormatException exception) {
+            throw invalid(label + " exceeds the supported Moodle account ID range");
         }
     }
 

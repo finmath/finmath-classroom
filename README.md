@@ -65,7 +65,7 @@ and year rollover remain [planned work](todo.md).
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
-| Moodle gradebook CSV export with point scaling | Implemented; from latest feedback with an explicit username mapping, or supplied username/points files |
+| Moodle gradebook CSV export with point scaling | Implemented; latest feedback uses saved Moodle user IDs, with optional username mapping or supplied points CSV |
 | Shared Maven/JUnit feedback action and versioned artifacts | Implemented |
 | Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer |
 | Verified server releases and manual server updater | Implemented |

@@ -76,6 +76,108 @@ class FeedbackMoodleCliTest {
         assertFalse(json.path("results").get(0).path("authoritative").asBoolean());
     }
 
+    @Test void exportsSavedMoodleIdsWithoutMappingEvenAfterRegistrationIdentityUpgrade() throws Exception {
+        identity("s1", "moodle:https://moodle.example", "123");
+        identity("s2", "moodle:https://moodle.example", "456");
+        record("s1", 456, 1, "received", "failed", "15");
+        record("s2", 457, 1, "received", "failed", "0");
+        Files.delete(mapping);
+        byte[] registration = Files.readAllBytes(directory.resolve("classroom.db"));
+        byte[] feedback = Files.readAllBytes(directory.resolve("feedback.db"));
+
+        Result result = run(without(command(), "--moodle-users"));
+
+        assertEquals(0, result.code(), result.error());
+        assertEquals("userid,Exercise\n123,6.82\n456,0.00\n", Files.readString(output));
+        assertTrue(result.output().contains("User ID"), result.output());
+        assertTrue(result.output().contains("https://moodle.example"), result.output());
+        assertTrue(result.output().contains("15/22"));
+        assertArrayEquals(registration, Files.readAllBytes(directory.resolve("classroom.db")));
+        assertArrayEquals(feedback, Files.readAllBytes(directory.resolve("feedback.db")));
+        assertEquals("self", EnrollmentStore.readOnly(directory.resolve("classroom.db"))
+                .list("lecture", "exercise").get(0).identitySource(), "An old enrollment snapshot must not be rewritten");
+    }
+
+    @Test void automaticIdExportWithJsonReportsIdentifierAndMoodleSite() throws Exception {
+        identity("s1", "moodle:https://moodle.example", "123");
+        record("s1", 456, 1, "received", "passed", "22");
+        String[] arguments = without(command(), "--moodle-users");
+        arguments[Arrays.asList(arguments).indexOf("--format") + 1] = "json";
+
+        Result result = run(arguments);
+
+        assertEquals(0, result.code(), result.error());
+        var json = JsonFiles.MAPPER.readTree(result.output());
+        assertFalse(json.path("authoritative").asBoolean());
+        assertEquals("userid", json.path("moodleExport").path("identifier").asString());
+        assertEquals("https://moodle.example", json.path("moodleExport").path("issuer").asString());
+        assertEquals(1, json.path("moodleExport").path("exported").asInt());
+        assertEquals(1, json.path("moodleExport").path("skipped").asInt());
+        assertEquals("userid,Exercise\n123,10.00\n", Files.readString(output));
+    }
+
+    @Test void automaticIdExportDoesNotRequireIdentityForLatestUnavailableScore() throws Exception {
+        record("s1", 456, 1, "received", "failed", "15");
+        record("s1", 456, 2, "missing", null, null);
+        identity("s2", "moodle:https://moodle.example", "456");
+        record("s2", 457, 1, "received", "passed", "22");
+
+        Result result = run(without(command(), "--moodle-users"));
+
+        assertEquals(0, result.code(), result.error());
+        assertEquals("userid,Exercise\n456,10.00\n", Files.readString(output));
+        assertTrue(result.output().contains("missing"));
+        assertFalse(result.output().contains("15/22"));
+    }
+
+    @Test void automaticIdExportRejectsMissingSelfAndOpaqueIdentitiesWithMappingGuidance() throws Exception {
+        record("s1", 456, 1, "received", "failed", "15");
+        for (String[] values : new String[][]{{"roster", null}, {"self", "123"},
+                {"moodle:https://moodle.example", "opaque-subject"},
+                {"moodle:https://moodle.example", "0"}, {"moodle:https://moodle.example", null}}) {
+            identity("s1", values[0], values[1]);
+            byte[] registration = Files.readAllBytes(directory.resolve("classroom.db"));
+
+            Result result = run(without(command(), "--moodle-users"));
+
+            assertEquals(2, result.code());
+            assertTrue(result.error().contains("--moodle-users"), result.error());
+            assertFalse(Files.exists(output));
+            assertArrayEquals(registration, Files.readAllBytes(directory.resolve("classroom.db")));
+        }
+    }
+
+    @Test void automaticIdExportRejectsGradesFromDifferentMoodleSites() throws Exception {
+        identity("s1", "moodle:https://moodle.example", "123");
+        identity("s2", "moodle:https://other-moodle.example", "123");
+        record("s1", 456, 1, "received", "failed", "15");
+        record("s2", 457, 1, "received", "passed", "22");
+
+        assertEquals(2, run(without(command(), "--moodle-users")).code());
+
+        assertFalse(Files.exists(output));
+    }
+
+    @Test void automaticIdExportNeverOverwritesExistingOutput() throws Exception {
+        identity("s1", "moodle:https://moodle.example", "123");
+        record("s1", 456, 1, "received", "failed", "15");
+        Files.writeString(output, "Previously reviewed grades\n");
+
+        assertEquals(2, run(without(command(), "--moodle-users")).code());
+
+        assertEquals("Previously reviewed grades\n", Files.readString(output));
+    }
+
+    @Test void explicitUsernameMappingSelectsUsernameModeEvenForMoodleRegistrations() throws Exception {
+        identity("s1", "moodle:https://moodle.example", "123");
+        record("s1", 456, 1, "received", "failed", "15");
+
+        Result result = run(command());
+
+        assertEquals(0, result.code(), result.error());
+        assertEquals("username,Exercise\nmoodle.alice,6.82\n", Files.readString(output));
+    }
+
     @Test void appliesCustomTitleOffsetAndPrecisionAndChecksReportedMaximum() throws Exception {
         record("s1", 456, 1, "received", "failed", "15");
 
@@ -103,6 +205,7 @@ class FeedbackMoodleCliTest {
         assertEquals(1, json.path("moodleExport").path("exported").asInt());
         assertEquals(1, json.path("moodleExport").path("skipped").asInt());
         assertEquals("gradebook", json.path("moodleExport").path("target").asString());
+        assertEquals("username", json.path("moodleExport").path("identifier").asString());
         assertEquals("username,Exercise\nmoodle.alice,6.82\n", Files.readString(output));
     }
 
@@ -123,6 +226,7 @@ class FeedbackMoodleCliTest {
         byte[] registration = Files.readAllBytes(directory.resolve("classroom.db"));
 
         assertEquals(2, run(command()).code());
+        assertEquals(2, run(without(command(), "--moodle-users")).code());
 
         assertFalse(Files.exists(output));
         assertFalse(Files.exists(directory.resolve("feedback.db")));
@@ -141,7 +245,7 @@ class FeedbackMoodleCliTest {
 
     @Test void requiresLatestSingleAssignmentAndExportConfiguration() throws Exception {
         record("s1", 456, 1, "received", "failed", "15");
-        for (String option : List.of("--latest", "--lecture", "--assignment", "--moodle-users", "--moodle-max")) {
+        for (String option : List.of("--latest", "--lecture", "--assignment", "--moodle-max")) {
             assertEquals(2, run(without(command(), option)).code(), option);
             assertFalse(Files.exists(output));
         }
@@ -169,6 +273,17 @@ class FeedbackMoodleCliTest {
         assertEquals("Previously reviewed grades\n", Files.readString(output));
         assertArrayEquals(registration, Files.readAllBytes(directory.resolve("classroom.db")));
         assertArrayEquals(feedback, Files.readAllBytes(directory.resolve("feedback.db")));
+    }
+
+    private void identity(String student, String source, String subject) throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("classroom.db"));
+                var statement = connection.prepareStatement(
+                        "UPDATE students SET identity_source=?,identity_subject=? WHERE lecture_id='lecture' AND id=?")) {
+            statement.setString(1, source);
+            statement.setString(2, subject);
+            statement.setString(3, student);
+            assertEquals(1, statement.executeUpdate());
+        }
     }
 
     private void record(String student, long runId, int attempt, String collectionStatus,

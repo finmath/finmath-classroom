@@ -159,6 +159,9 @@ class EnrollmentAccessTest {
 
         assertEquals(List.of(pending), readOnly.list(null, null));
         assertEquals(List.of(pending), readOnly.list("lecture", "task"));
+        assertEquals(Map.of(pending.studentId(), identity), readOnly.studentIdentities("lecture"));
+        assertTrue(readOnly.studentIdentities("other-lecture").isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> readOnly.studentIdentities(null));
         assertThrows(IOException.class, () -> readOnly.activateInvitation(pending));
 
         assertEquals(before, row("enrollments"));

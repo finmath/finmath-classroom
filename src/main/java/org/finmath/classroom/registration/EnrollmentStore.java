@@ -394,6 +394,23 @@ public final class EnrollmentStore {
 		}
 	}
 
+	/** Current account identities, including Moodle associations established after initial acceptance. */
+	public Map<String, Identity> studentIdentities(String lectureId) throws IOException {
+		if(lectureId == null || lectureId.isBlank()) throw new IllegalArgumentException("A lecture is required to read student identities");
+		try(Connection connection = connect(); PreparedStatement query = prepare(connection,
+				"SELECT id,identity_source,identity_subject,name FROM students WHERE lecture_id=?", lectureId);
+				ResultSet rows = query.executeQuery()) {
+			Map<String, Identity> identities = new LinkedHashMap<>();
+			while(rows.next()) {
+				identities.put(rows.getString("id"), new Identity(rows.getString("identity_source"),
+						rows.getString("identity_subject"), rows.getString("name")));
+			}
+			return Map.copyOf(identities);
+		} catch(SQLException exception) {
+			throw new IOException("Cannot read student identities.", exception);
+		}
+	}
+
 	private static final String SELECT = "SELECT e.*,s.name,s.github_id,s.github_login FROM enrollments e JOIN students s ON e.lecture_id=s.lecture_id AND e.student_id=s.id";
 
 	private static Enrollment enrollment(Connection connection, String lecture, String assignment, String student) throws SQLException {

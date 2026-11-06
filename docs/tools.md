@@ -96,41 +96,33 @@ between gradebook overrides and Assignment grading.
 
 ### Export latest feedback directly
 
-Prepare one private Moodle username mapping for the lecture. Obtain the framework's
-stable student IDs alongside names and GitHub accounts with:
-
-```sh
-sudo classroom registration list --lecture computational-finance --format table
-```
-
-Save a JSON object mapping each relevant **STUDENT ID** to that person's actual
-Moodle username, for example in
-`/var/lib/finmath-classroom/moodle-users.json`:
-
-```json
-{
-  "student-id-from-registration-list-1": "student.one",
-  "student-id-from-registration-list-2": "student.two"
-}
-```
-
-Replace those example keys with the exact IDs from your registration listing;
-automatically registered students usually have UUIDs. Verify the association using
-your course records, not display-name similarity. The service's LTI subject, student
-ID and GitHub login must not be assumed to be a Moodle username. Reuse this mapping
-for assignments in the same lecture and extend it when new students register.
-Every student with an exportable score needs a mapping. Missing mappings or duplicate
-Moodle usernames reject the export rather than silently dropping scored students.
-
-Then display the latest feedback and generate the import file together:
+For students registered through Moodle, display the latest feedback and generate
+the import file together. The command uses their saved Moodle user IDs automatically;
+no username mapping file is needed:
 
 ```sh
 sudo classroom feedback list --latest --format table \
   --lecture computational-finance --assignment discount-factor-interpolation \
-  --moodle-users /var/lib/finmath-classroom/moodle-users.json \
   --moodle-output /var/lib/finmath-classroom/discount-factor-grades.csv \
   --moodle-max 10
 ```
+
+The first CSV column is `userid`. In Moodle, map it to **User ID**, not **Username**
+or **ID number**. The command reports the Moodle site associated with those IDs;
+import the file back into that same site. The listing's **NAME** is a full/display
+name, normally released by Moodle, while **STUDENT ID** is the framework's internal
+ID. Neither needs to be copied or translated for this workflow.
+
+The export uses the current saved Moodle identity, including a Moodle association
+established after a student's initial direct registration. Each exported score must
+have a verified Moodle identity with a positive numeric account ID, and all exported
+IDs must belong to the same Moodle site. Missing, nonnumeric or duplicate IDs and
+mixed Moodle sites stop the export instead of dropping scored students. The default
+targets standard Moodle, which sends its numeric user ID as the LTI subject. A
+custom or anonymizing LTI plugin may use different subject semantics; use the
+[username mapping alternative](#optional-username-mapping) for those installations.
+See Moodle's [LTI implementation](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/lti/locallib.php)
+and [grade import fields](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/grade/import/grade_import_form.php).
 
 The CSV uses the configured assignment title as its grade-column heading. Override
 it with `--grade-item "Discount-factor interpolation"` if useful when mapping the
@@ -147,11 +139,11 @@ table and the export/skip counts before importing. The table and CSV use the sam
 selected latest results; no table parsing or intermediate points CSV is needed.
 
 Export requires `--latest`, a single `--lecture` and `--assignment`,
-`--moodle-users`, `--moodle-output` and `--moodle-max`. The output must be a new file
-in an existing directory. With the server helper, keep mapping and output under
-`/var/lib/finmath-classroom`: the `finmath-classroom` service user needs read access
-to the mapping and write access to the output directory. Keep both private; the
-export is created with owner-only permissions. The databases are read without
+`--moodle-output` and `--moodle-max`. The output must be a new file
+in an existing directory. With the server helper, keep output under
+`/var/lib/finmath-classroom`: the `finmath-classroom` service user needs write access
+to the output directory. Keep exports private; the export is created with
+owner-only permissions. The databases are read without
 changes, and a missing feedback database is not created.
 
 This uses the locally collected snapshot. For a fresher one, first run:
@@ -165,8 +157,40 @@ These scores still come from student-controlled workflows; exporting them does n
 establish the current branch head, a deadline submission or authoritative grading.
 Deploy the updated JAR before using these options. The existing `classroom` helper
 already forwards them, so no helper reinstall or database migration is needed.
+Students whose Moodle identities are already recorded do not need to register again.
 For local use, replace `sudo classroom` with
 `java -jar target/finmath-classroom.jar` and add `--data DIR`.
+
+### Optional username mapping
+
+For students without a saved Moodle identity, or a Moodle installation with custom
+LTI identifiers, add `--moodle-users /var/lib/finmath-classroom/moodle-users.json`
+to the export command. This switches the **whole export** to username matching,
+including any students who did register through Moodle. The CSV's first column is
+then `username`, which must be mapped to **Username** during import.
+
+Obtain the framework's stable student IDs alongside names and GitHub accounts with:
+
+```sh
+sudo classroom registration list --lecture computational-finance --format table
+```
+
+Save a private JSON object mapping each relevant **STUDENT ID** to that person's
+actual Moodle username, readable by the `finmath-classroom` service user:
+
+```json
+{
+  "student-id-from-registration-list-1": "student.one",
+  "student-id-from-registration-list-2": "student.two"
+}
+```
+
+Replace those example keys with the exact IDs from your registration listing;
+automatically registered students usually have UUIDs. Verify the association using
+your course records, not display-name similarity. Reuse this mapping for assignments
+in the same lecture and extend it when new students register. Every student with an
+exportable score needs a mapping in this mode. Missing mappings or duplicate Moodle
+usernames reject the export rather than silently dropping scored students.
 
 ### Convert an existing points CSV
 
@@ -230,13 +254,16 @@ does not resolve identities or make student-controlled workflow scores authorita
 
 1. Open the Moodle course's **Grades → Import → CSV file**, upload the exported
    file, and select UTF-8 with a comma separator.
-2. Under **Identify user by**, map the file's `username` column to Moodle's
-   **Username** field.
-3. In grade item mappings, ignore `username` and map the exported grade column
+2. Under **Identify user by**, map `userid` to **User ID** for the default
+   latest-feedback export. For an explicit username mapping or an existing points
+   CSV converted with `moodle export`, map `username` to **Username** instead.
+   **ID number** is a separate Moodle field; it is not the numeric User ID.
+3. In grade item mappings, ignore the identity column and map the exported grade column
    (for example, `Discount-factor interpolation`) to the
    **existing** assignment grade item. The exported column title is a label for
    this manual mapping; it does not locate an activity automatically.
-4. Review Moodle's preview, identities, scores and destination, then import.
+4. Review Moodle's preview, identities, scores and destination, then import. For
+   a `userid` export, use the Moodle site reported by the export command.
    Rows omitted for blank scores leave existing grades untouched.
 
 **Assignment caveat:** Moodle gradebook imports override activity grades. A grade

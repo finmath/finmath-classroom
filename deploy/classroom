@@ -16,8 +16,9 @@ Examples:
   sudo classroom feedback list --latest --format table --lecture numerical-methods
 
 Latest feedback can also write a Moodle gradebook CSV: select one lecture/assignment
-and add --moodle-users FILE.json --moodle-output NEW.csv --moodle-max NUMBER.
-Keep mapping and output under /var/lib/finmath-classroom; no Moodle token is needed.
+and add --moodle-output NEW.csv --moodle-max NUMBER. Saved Moodle user IDs are used.
+Optional --moodle-users FILE.json switches the whole export to username matching.
+Keep output and any mapping under /var/lib/finmath-classroom; no Moodle token is needed.
 
 Uses /var/lib/finmath-classroom and the installed Java 21 application.
 The Java command runs as finmath-classroom, never as root.

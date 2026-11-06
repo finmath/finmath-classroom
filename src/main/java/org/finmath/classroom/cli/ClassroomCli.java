@@ -222,19 +222,33 @@ public final class ClassroomCli {
             List<Map<String, Object>> rows = store == null ? List.of() : store.list(lecture, assignment);
             if (options.containsKey("--latest")) rows = FeedbackListing.latest(enrollments.list(lecture, assignment), rows, checks);
             MoodleGradeExport.Summary export = null;
+            String identifier = options.containsKey("--moodle-users") ? "username" : "userid";
+            String moodleIssuer = null;
             if (options.containsKey("--moodle-output")) {
-                export = FeedbackMoodleExport.export(rows, required(options, "--moodle-users"), required(options, "--moodle-output"),
-                        options.getOrDefault("--grade-item", config.assignment(lecture, assignment).title()),
-                        options.containsKey("--source-max") ? decimalOption(options, "--source-max") : null,
-                        decimalOption(options, "--moodle-max"),
-                        options.containsKey("--offset") ? decimalOption(options, "--offset") : BigDecimal.ZERO,
-                        Integer.parseInt(options.getOrDefault("--decimals", "2")));
+                Path output = required(options, "--moodle-output");
+                String gradeItem = options.getOrDefault("--grade-item", config.assignment(lecture, assignment).title());
+                BigDecimal sourceMax = options.containsKey("--source-max") ? decimalOption(options, "--source-max") : null;
+                BigDecimal moodleMax = decimalOption(options, "--moodle-max");
+                BigDecimal offset = options.containsKey("--offset") ? decimalOption(options, "--offset") : BigDecimal.ZERO;
+                int decimals = Integer.parseInt(options.getOrDefault("--decimals", "2"));
+                if (options.containsKey("--moodle-users")) {
+                    export = FeedbackMoodleExport.export(rows, required(options, "--moodle-users"), output,
+                            gradeItem, sourceMax, moodleMax, offset, decimals);
+                } else {
+                    var moodleExport = FeedbackMoodleExport.exportByMoodleId(rows, enrollments.studentIdentities(lecture),
+                            output, gradeItem, sourceMax, moodleMax, offset, decimals);
+                    export = moodleExport.summary();
+                    moodleIssuer = moodleExport.issuer();
+                }
             }
             if (format.equals("table")) {
                 printFeedback(rows, out);
                 if (export != null) {
                     out.println("Exported " + export.exported() + " grades; skipped " + export.skipped()
                             + " unavailable scores; output " + options.get("--moodle-output"));
+                    out.println(moodleIssuer == null
+                            ? "Moodle import: map username to Username."
+                            : "Moodle import on " + moodleIssuer + ": map userid to User ID (not ID number).");
                     out.println("Student-workflow feedback only; review before import. Moodle gradebook import overrides Assignment grades.");
                 }
             } else {
@@ -242,9 +256,17 @@ public final class ClassroomCli {
                 result.put("authoritative", false);
                 result.put("repositories", checks);
                 result.put("results", rows);
-                if (export != null) result.put("moodleExport", Map.of("exported", export.exported(), "skipped", export.skipped(),
-                        "output", options.get("--moodle-output"), "target", "gradebook",
-                        "notice", "Student-workflow feedback only; review before import. Gradebook import overrides Assignment grades."));
+                if (export != null) {
+                    Map<String, Object> metadata = new LinkedHashMap<>();
+                    metadata.put("exported", export.exported());
+                    metadata.put("skipped", export.skipped());
+                    metadata.put("output", options.get("--moodle-output"));
+                    metadata.put("target", "gradebook");
+                    metadata.put("identifier", identifier);
+                    if (moodleIssuer != null) metadata.put("issuer", moodleIssuer);
+                    metadata.put("notice", "Student-workflow feedback only; review before import. Gradebook import overrides Assignment grades.");
+                    result.put("moodleExport", metadata);
+                }
                 out.println(JsonFiles.MAPPER.writeValueAsString(result));
             }
         } else {
@@ -268,7 +290,7 @@ public final class ClassroomCli {
             return;
         }
         if (!options.containsKey("--latest")) throw new IllegalArgumentException("--moodle-output requires --latest");
-        for (String option : List.of("--lecture", "--assignment", "--moodle-users", "--moodle-max", "--moodle-output")) {
+        for (String option : List.of("--lecture", "--assignment", "--moodle-max", "--moodle-output")) {
             requiredText(options, option);
         }
     }
@@ -502,7 +524,7 @@ public final class ClassroomCli {
                   feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER --output FILE [--summary FILE]
                   feedback sync --data DIR [--lecture ID] [--assignment ID] [--workflow classroom.yml]
                   feedback list --data DIR [--lecture ID] [--assignment ID] [--latest] [--format json|table]
-                    [--moodle-output FILE.csv --moodle-users FILE.json --moodle-max NUMBER
+                    [--moodle-output FILE.csv --moodle-max NUMBER [--moodle-users FILE.json]
                      [--grade-item TEXT] [--source-max NUMBER] [--offset NUMBER] [--decimals NUMBER]]
                   feedback show --data DIR --repository-id NUMBER --run-id NUMBER --attempt NUMBER
                   collect --manifest FILE --results DIR --output FILE.csv
@@ -520,7 +542,8 @@ public final class ClassroomCli {
 
                 Feedback sync downloads student-workflow artifacts into private DIR/feedback.db; list/show are read-only.
                 Feedback list --latest shows the newest known run and its last attempt per enrolled student/assignment.
-                Its Moodle export requires --latest, --lecture and --assignment plus a student-ID-to-Moodle-username JSON map.
+                Its Moodle export requires --latest, --lecture and --assignment. Saved Moodle user IDs are used automatically.
+                Import userid as Moodle User ID on the reported Moodle site. Optional --moodle-users selects username mapping instead.
                 Export uses each result's maximum; --source-max optionally checks it. Missing scores are omitted, never replaced by older grades.
                 Scoring is feedback only. The collect command requires trusted final-runner results.
                 Moodle export scales an existing username/points CSV for manual gradebook import; no Moodle credentials are needed.

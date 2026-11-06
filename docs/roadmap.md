@@ -129,7 +129,7 @@ format does not make it trustworthy.
 
 Feed those trusted results into the existing CSV collector. The
 [Moodle CSV converter](tools.md#moodle-grade-import) supports manual gradebook import
-once Moodle usernames and reviewed points are available. Automatic Moodle grade return,
+using saved Moodle user IDs or explicit usernames and reviewed points. Automatic Moodle grade return,
 roster synchronization and richer administration can follow once the submission
 and grading contracts work end to end.
 
