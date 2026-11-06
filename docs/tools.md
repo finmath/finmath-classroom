@@ -59,6 +59,8 @@ Run `feedback sync` first for a fresher local snapshot. The default listing rema
 all-history JSON; `--latest` also works with JSON, and `--format table` can display
 the full history. Deploy the updated JAR to use these options; the existing server
 helper forwards them without reinstalling it, and no database migration is needed.
+Add the [Moodle export options](#export-latest-feedback-directly) to display this
+table and write a scaled import CSV in the same command.
 
 See [automatic collection](autograding.md#5-automatic-server-collection) for
 permissions, filters and status semantics, and [deployment](deployment.md#6-enable-automatic-feedback-collection)
@@ -83,6 +85,217 @@ results do not silently become zero scores. Input/schema errors return exit code
 Student-controlled feedback is not a trusted final result. The isolated final
 runner and Java submission-manifest generation remain pending. See the
 [grading contract](grading-contract.md) for the reference format and deadline rules.
+
+## Moodle grade import
+
+Export either the framework's saved latest feedback or an existing username/points
+CSV. Both routes produce a two-column CSV for Moodle's **course gradebook import**.
+They need no Moodle token and do not contact Moodle or change grades. Import the
+result using the [steps below](#import-the-exported-csv), including the distinction
+between gradebook overrides and Assignment grading.
+
+### Export latest feedback directly
+
+For students registered through Moodle, display the latest feedback and generate
+the import file together. The command uses their saved Moodle user IDs automatically;
+no username mapping file is needed:
+
+```sh
+sudo classroom feedback list --latest --format table \
+  --lecture computational-finance --assignment discount-factor-interpolation \
+  --moodle-output /var/lib/finmath-classroom/discount-factor-grades.csv \
+  --moodle-max 10
+```
+
+The first CSV column is `userid`. In Moodle, map it to **User ID**, not **Username**
+or **ID number**. The command reports the Moodle site associated with those IDs;
+import the file back into that same site. The listing's **NAME** is a full/display
+name, normally released by Moodle, while **STUDENT ID** is the framework's internal
+ID. Neither needs to be copied or translated for this workflow.
+
+The export uses the current saved Moodle identity, including a Moodle association
+established after a student's initial direct registration. Each exported score must
+have a verified Moodle identity with a positive numeric account ID, and all exported
+IDs must belong to the same Moodle site. Missing, nonnumeric or duplicate IDs and
+mixed Moodle sites stop the export instead of dropping scored students. The default
+targets standard Moodle, which sends its numeric user ID as the LTI subject. A
+custom or anonymizing LTI plugin may use different subject semantics; use the
+[username mapping alternative](#optional-username-mapping) for those installations.
+See Moodle's [LTI implementation](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/lti/locallib.php)
+and [grade import fields](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/grade/import/grade_import_form.php).
+
+The CSV uses the configured assignment title as its grade-column heading. Override
+it with `--grade-item "Discount-factor interpolation"` if useful when mapping the
+column in Moodle. Each score is scaled using that result's reported `maxScore`:
+75 out of 100 becomes 7.50 out of 10. Add `--source-max 100` to require every exported
+result to report that maximum; it checks for a rubric mismatch rather than replacing
+the reported maximum. `--offset` and `--decimals` work as described below.
+
+Only received results with status `passed` or `failed` and numeric scores are
+exported. Missing, invalid or unavailable latest feedback is omitted and counted,
+with no fallback to older scores; an explicit zero is retained and scaled. If no
+scores can be exported, the command fails without creating a file. Review the
+table and the export/skip counts before importing. The table and CSV use the same
+selected latest results; no table parsing or intermediate points CSV is needed.
+
+Export requires `--latest`, a single `--lecture` and `--assignment`,
+`--moodle-output` and `--moodle-max`. The output must be a new file
+in an existing directory. With the server helper, keep output under
+`/var/lib/finmath-classroom`: the `finmath-classroom` service user needs write access
+to the output directory. Keep exports private; the export is created with
+owner-only permissions. The databases are read without
+changes, and a missing feedback database is not created.
+
+This uses the locally collected snapshot. For a fresher one, first run:
+
+```sh
+sudo classroom feedback sync \
+  --lecture computational-finance --assignment discount-factor-interpolation
+```
+
+These scores still come from student-controlled workflows; exporting them does not
+establish the current branch head, a deadline submission or authoritative grading.
+Deploy the updated JAR before using these options. The existing `classroom` helper
+already forwards them, so no helper reinstall or database migration is needed.
+Students whose Moodle identities are already recorded do not need to register again.
+For local use, replace `sudo classroom` with
+`java -jar target/finmath-classroom.jar` and add `--data DIR`.
+
+### Optional username mapping
+
+For students without a saved Moodle identity, or a Moodle installation with custom
+LTI identifiers, add `--moodle-users /var/lib/finmath-classroom/moodle-users.json`
+to the export command. This switches the **whole export** to username matching,
+including any students who did register through Moodle. The CSV's first column is
+then `username`, which must be mapped to **Username** during import.
+
+Obtain the framework's stable student IDs alongside names and GitHub accounts with:
+
+```sh
+sudo classroom registration list --lecture computational-finance --format table
+```
+
+Save a private JSON object mapping each relevant **STUDENT ID** to that person's
+actual Moodle username, readable by the `finmath-classroom` service user:
+
+```json
+{
+  "student-id-from-registration-list-1": "student.one",
+  "student-id-from-registration-list-2": "student.two"
+}
+```
+
+Replace those example keys with the exact IDs from your registration listing;
+automatically registered students usually have UUIDs. Verify the association using
+your course records, not display-name similarity. Reuse this mapping for assignments
+in the same lecture and extend it when new students register. Every student with an
+exportable score needs a mapping in this mode. Missing mappings or duplicate Moodle
+usernames reject the export rather than silently dropping scored students.
+
+### Convert an existing points CSV
+
+`moodle export` converts a reviewed list of Moodle usernames and assignment points.
+Use one input file per assignment. For example:
+
+```csv
+username,points
+student.one,75
+student.two,100
+student.three,
+student.four,0
+```
+
+```sh
+java -jar target/finmath-classroom.jar moodle export \
+  --input /private/service/points.csv \
+  --output /private/service/moodle-grades.csv \
+  --source-max 100 --moodle-max 10 \
+  --grade-item "Discount-factor interpolation"
+```
+
+This produces grades 7.50, 10.00 and 0.00; the row with blank points is omitted.
+The output directory must exist and the output file must be new. Keep the input
+and exports in private storage outside version control. Run this command with Java
+directly; the `sudo classroom` server helper only supports registration and feedback.
+
+Both export routes use this scaling (for latest feedback, `source-max` is the
+result's reported maximum):
+
+```text
+moodle points = round(clamp(points / source-max * moodle-max + offset, 0, moodle-max))
+```
+
+`--offset` defaults to 0, in Moodle points. `--decimals` defaults to 2 and accepts
+0–6; rounding is half up. The result is capped at the exact Moodle maximum even if
+that maximum has more fractional digits than the requested precision. Set Moodle's
+grade item maximum to `--moodle-max`; the converter cannot inspect that setting.
+For a CSV headed `Moodle User Name,GitHub points`, add
+`--username-column "Moodle User Name" --points-column "GitHub points"`.
+Column names match exactly. Extra input columns are ignored after CSV validation.
+
+The command accepts UTF-8 comma-separated CSV, including an optional BOM and quoted
+fields; decimal numbers use a dot. It validates the whole file before writing:
+blank scores are skipped and counted, explicit zero is retained, and duplicate
+usernames (case insensitive), missing usernames, malformed numbers and scores
+outside `[0, source-max]` fail with exit code 2. A file with no numeric scores fails.
+CSV text that could be interpreted as a spreadsheet formula is rejected rather
+than changing an identity by prefixing an apostrophe. Usernames are preserved,
+including leading zeroes; avoid spreadsheet conversions that alter them. Numeric
+values are limited to an absolute value of one billion and twelve fractional digits.
+
+The input must already contain actual Moodle **usernames**, not display names,
+GitHub logins, or LTI subject IDs. Current Moodle launches store an LTI subject,
+which must not be assumed to be the Moodle username. The existing `collect` CSV
+contains `student_id` and `score`; only select `--username-column student_id
+--points-column score` if those IDs are verified Moodle usernames. This converter
+does not resolve identities or make student-controlled workflow scores authoritative.
+
+### Import the exported CSV
+
+1. Open the Moodle course's **Grades → Import → CSV file**, upload the exported
+   file, and select UTF-8 with a comma separator.
+2. Under **Identify user by**, map `userid` to **User ID** for the default
+   latest-feedback export. For an explicit username mapping or an existing points
+   CSV converted with `moodle export`, map `username` to **Username** instead.
+   **ID number** is a separate Moodle field; it is not the numeric User ID.
+3. In grade item mappings, ignore the identity column and map the exported grade column
+   (for example, `Discount-factor interpolation`) to the
+   **existing** assignment grade item. The exported column title is a label for
+   this manual mapping; it does not locate an activity automatically.
+4. Review Moodle's preview, identities, scores and destination, then import. For
+   a `userid` export, use the Moodle site reported by the export command.
+   Rows omitted for blank scores leave existing grades untouched.
+
+**Assignment caveat:** Moodle gradebook imports override activity grades. A grade
+imported this way can no longer be changed through the Assignment's grading page
+until its gradebook override is removed. This is appropriate if the course gradebook
+is where you manage these points. See Moodle's [grade import documentation](https://docs.moodle.org/en/Grade_import).
+
+If points should remain managed **inside the separate Moodle Assignment activity**
+(such as the activity where students submit their GitHub repository URL), use its
+**Offline grading worksheet** instead: enable it in Assignment feedback settings,
+download the worksheet from that assignment, merge the scaled grades into its
+Grade column, then upload and review the proposed changes. Preserve the worksheet's
+participant identifiers and timestamps. It cannot be recreated from usernames and
+points alone, and username may not be an exported identity field; use a verified
+common field or an explicit username-to-participant mapping. The converter above
+generates a gradebook CSV, not an Assignment worksheet. See Moodle's
+[Assignment instructions](https://docs.moodle.org/en/Using_Assignment). Worksheet
+grade import requires simple direct grading; it does not support Rubrics or
+Marking guides.
+
+### Later direct synchronization
+
+For direct updates of a separate Assignment activity, a future adapter can use
+Moodle's `mod_assign_save_grades` web service. It needs an administrator-configured
+service/token, the internal assignment ID (not the activity URL's course-module ID),
+and a verified mapping to numeric Moodle user IDs. Fetch existing grades and preview
+the changes before writing; preserve attempt and grading-workflow semantics. See
+Moodle's [web service setup](https://docs.moodle.org/405/en/Using_web_services) and
+[Assignment service implementation](https://github.com/moodle/moodle/blob/MOODLE_405_STABLE/mod/assign/externallib.php).
+LTI grade return would target the External tool's grade item, which is a different
+destination from the separate Assignment. Neither direct sync nor worksheet merging
+is implemented by this command.
 
 ## Optional Maven/IntelliJ workspace
 

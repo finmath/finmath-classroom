@@ -127,7 +127,9 @@ other students' work. Sharing
 the scorer is useful; copying an editable workflow result into the final-result
 format does not make it trustworthy.
 
-Feed those trusted results into the existing CSV collector. Moodle grade return,
+Feed those trusted results into the existing CSV collector. The
+[Moodle CSV converter](tools.md#moodle-grade-import) supports manual gradebook import
+using saved Moodle user IDs or explicit usernames and reviewed points. Automatic Moodle grade return,
 roster synchronization and richer administration can follow once the submission
 and grading contracts work end to end.
 

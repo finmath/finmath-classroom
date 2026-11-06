@@ -99,6 +99,15 @@ publish those solutions incidentally.
   or invalid latest results and enrollments without attempts; never replace them
   with older scores. Listing remains local and read-only; it does not establish
   the current branch head or a final grade.
+- Optional Moodle CSV export from `feedback list --latest` requires one lecture and
+  assignment. By default, use the current saved Moodle identity's numeric subject
+  as `userid`; require the same Moodle issuer and unique positive IDs for exported
+  scores. Never substitute a display name, GitHub ID or framework student ID. An
+  explicit `--moodle-users` mapping switches the whole export to usernames. Use the same
+  latest rows as the listing, with no fallback to older scores. Omit unavailable
+  grades, retain zero, and require a valid identity for every exportable score. Scale by
+  each reported maximum; optional `--source-max` checks for an expected rubric
+  maximum. The private export never changes databases or publishes grades.
 - Preserve rubric, feedback, manifest and final-result formats, deterministic
   scoring, duplicate/missing-test handling, bounded inputs, safe XML and formula-safe
   CSV. Numeric JSON formatting need not be byte-identical (`5` and `5.0`). Correlating
@@ -118,7 +127,13 @@ Operational details live in the [registration reference](registration.md) and
 liveness; `/ready` covers configured registration, not remote GitHub permissions
 or final grading. Moodle launch sessions are in memory in one server instance;
 restarts interrupt pending logins. Moodle roster synchronization, deep linking and
-grade return are not implemented.
+automatic grade return are not implemented. `feedback list --latest --moodle-output`
+exports locally collected feedback using saved Moodle user IDs or an explicit
+username mapping; the offline
+`moodle export` command scales supplied username/points files. Both prepare manual
+Moodle gradebook imports without merging Assignment worksheets or publishing grades.
+Automatic ID export targets standard Moodle's numeric LTI subject; custom subject
+semantics require the explicit username alternative.
 
 ## Development history
 
