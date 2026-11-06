@@ -2,6 +2,7 @@ package org.finmath.classroom.cli;
 
 import java.io.IOException;
 import java.io.PrintStream;
+import java.math.BigDecimal;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -20,7 +21,9 @@ import org.finmath.classroom.feedback.FeedbackListing;
 import org.finmath.classroom.feedback.GitHubFeedbackClient;
 import org.finmath.classroom.grading.FeedbackScorer;
 import org.finmath.classroom.grading.FeedbackArtifact;
+import org.finmath.classroom.grading.FeedbackMoodleExport;
 import org.finmath.classroom.grading.GradeCollector;
+import org.finmath.classroom.grading.MoodleGradeExport;
 import org.finmath.classroom.io.JsonFiles;
 import org.finmath.classroom.io.SafeFiles;
 import org.finmath.classroom.registration.ClassroomConfig;
@@ -46,6 +49,7 @@ public final class ClassroomCli {
                 case "score" -> score(options(args, Set.of("--rubric", "--reports", "--output", "--summary"), Set.of()), out);
                 case "feedback" -> feedback(Arrays.copyOfRange(args, 1, args.length), out);
                 case "collect" -> collect(options(args, Set.of("--manifest", "--results", "--output"), Set.of()), out);
+                case "moodle" -> moodle(Arrays.copyOfRange(args, 1, args.length), out);
                 case "workspace" -> workspace(options(args, Set.of("--modules", "--repositories-root", "--output"),
                         Set.of("--check", "--write")), out);
                 case "registration" -> registration(Arrays.copyOfRange(args, 1, args.length), out);
@@ -103,6 +107,35 @@ public final class ClassroomCli {
         return 0;
     }
 
+    private static int moodle(String[] args, PrintStream out) throws IOException {
+        if (args.length == 0 || !args[0].equals("export")) {
+            throw new IllegalArgumentException("Choose a Moodle command: export");
+        }
+        var options = options(args, Set.of("--input", "--output", "--username-column", "--points-column",
+                "--grade-item", "--source-max", "--moodle-max", "--offset", "--decimals"), Set.of());
+        var summary = MoodleGradeExport.export(required(options, "--input"), required(options, "--output"),
+                options.getOrDefault("--username-column", "username"), options.getOrDefault("--points-column", "points"),
+                requiredText(options, "--grade-item"), decimalOption(options, "--source-max"),
+                decimalOption(options, "--moodle-max"),
+                options.containsKey("--offset") ? decimalOption(options, "--offset") : BigDecimal.ZERO,
+                Integer.parseInt(options.getOrDefault("--decimals", "2")));
+        out.println("Exported " + summary.exported() + " grades; skipped " + summary.skipped()
+                + " rows with blank points; output " + options.get("--output"));
+        out.println("Review the CSV, then import in Moodle Grades > Import: username -> Username; grade column -> existing grade item.");
+        out.println("Gradebook import overrides Assignment grades. See docs/tools.md for the Assignment worksheet alternative.");
+        return 0;
+    }
+
+    private static BigDecimal decimalOption(Map<String, String> options, String key) {
+        String value = requiredText(options, key);
+        if (value.length() > 64) throw new IllegalArgumentException(key + " must be a decimal number of at most 64 characters");
+        try {
+            return new BigDecimal(value);
+        } catch (NumberFormatException exception) {
+            throw new IllegalArgumentException(key + " must be a decimal number");
+        }
+    }
+
     private static int feedback(String[] args, PrintStream out) throws IOException {
         if (args.length == 0) {
             throw new IllegalArgumentException("Choose a feedback command: select, report, sync, list or show");
@@ -149,12 +182,14 @@ public final class ClassroomCli {
     private static int feedbackCollection(String[] args, PrintStream out) throws IOException {
         Set<String> accepted = switch (args[0]) {
             case "sync" -> Set.of("--data", "--lecture", "--assignment", "--workflow");
-            case "list" -> Set.of("--data", "--lecture", "--assignment", "--format");
+            case "list" -> Set.of("--data", "--lecture", "--assignment", "--format",
+                    "--moodle-output", "--moodle-users", "--moodle-max", "--grade-item", "--source-max", "--offset", "--decimals");
             default -> Set.of("--data", "--repository-id", "--run-id", "--attempt");
         };
         var options = options(args, accepted, args[0].equals("list") ? Set.of("--latest") : Set.of());
         String format = options.getOrDefault("--format", "json");
         if (!Set.of("json", "table").contains(format)) throw new IllegalArgumentException("--format must be json or table");
+        validateFeedbackMoodleOptions(options);
         Path data = required(options, "--data");
         ClassroomConfig config = ClassroomConfig.load(data);
         String lecture = options.get("--lecture");
@@ -186,9 +221,32 @@ public final class ClassroomCli {
             List<Map<String, Object>> checks = store == null ? List.of() : store.checks(lecture, assignment);
             List<Map<String, Object>> rows = store == null ? List.of() : store.list(lecture, assignment);
             if (options.containsKey("--latest")) rows = FeedbackListing.latest(enrollments.list(lecture, assignment), rows, checks);
-            if (format.equals("table")) printFeedback(rows, out);
-            else out.println(JsonFiles.MAPPER.writeValueAsString(Map.of("authoritative", false,
-                    "repositories", checks, "results", rows)));
+            MoodleGradeExport.Summary export = null;
+            if (options.containsKey("--moodle-output")) {
+                export = FeedbackMoodleExport.export(rows, required(options, "--moodle-users"), required(options, "--moodle-output"),
+                        options.getOrDefault("--grade-item", config.assignment(lecture, assignment).title()),
+                        options.containsKey("--source-max") ? decimalOption(options, "--source-max") : null,
+                        decimalOption(options, "--moodle-max"),
+                        options.containsKey("--offset") ? decimalOption(options, "--offset") : BigDecimal.ZERO,
+                        Integer.parseInt(options.getOrDefault("--decimals", "2")));
+            }
+            if (format.equals("table")) {
+                printFeedback(rows, out);
+                if (export != null) {
+                    out.println("Exported " + export.exported() + " grades; skipped " + export.skipped()
+                            + " unavailable scores; output " + options.get("--moodle-output"));
+                    out.println("Student-workflow feedback only; review before import. Moodle gradebook import overrides Assignment grades.");
+                }
+            } else {
+                Map<String, Object> result = new LinkedHashMap<>();
+                result.put("authoritative", false);
+                result.put("repositories", checks);
+                result.put("results", rows);
+                if (export != null) result.put("moodleExport", Map.of("exported", export.exported(), "skipped", export.skipped(),
+                        "output", options.get("--moodle-output"), "target", "gradebook",
+                        "notice", "Student-workflow feedback only; review before import. Gradebook import overrides Assignment grades."));
+                out.println(JsonFiles.MAPPER.writeValueAsString(result));
+            }
         } else {
             FeedbackStore store = new FeedbackStore(data, false);
             long repository = positiveOption(options, "--repository-id");
@@ -200,6 +258,19 @@ public final class ClassroomCli {
             out.println(JsonFiles.MAPPER.writeValueAsString(result));
         }
         return 0;
+    }
+
+    private static void validateFeedbackMoodleOptions(Map<String, String> options) {
+        if (!options.containsKey("--moodle-output")) {
+            for (String option : List.of("--moodle-users", "--moodle-max", "--grade-item", "--source-max", "--offset", "--decimals")) {
+                if (options.containsKey(option)) throw new IllegalArgumentException(option + " requires --moodle-output");
+            }
+            return;
+        }
+        if (!options.containsKey("--latest")) throw new IllegalArgumentException("--moodle-output requires --latest");
+        for (String option : List.of("--lecture", "--assignment", "--moodle-users", "--moodle-max", "--moodle-output")) {
+            requiredText(options, option);
+        }
     }
 
     private static void printFeedback(List<Map<String, Object>> results, PrintStream out) {
@@ -393,10 +464,14 @@ public final class ClassroomCli {
 	}
 
     private static Path required(Map<String, String> options, String key) {
+        return Path.of(requiredText(options, key));
+    }
+
+    private static String requiredText(Map<String, String> options, String key) {
         if (!options.containsKey(key) || options.get(key).isBlank()) {
             throw new IllegalArgumentException("Missing required option " + key);
         }
-        return Path.of(options.get(key));
+        return options.get(key);
     }
 
     private static Map<String, String> options(String[] args, Set<String> values, Set<String> flags) {
@@ -427,8 +502,12 @@ public final class ClassroomCli {
                   feedback report --rubric FILE --reports DIR --context FILE --test-exit-code NUMBER --output FILE [--summary FILE]
                   feedback sync --data DIR [--lecture ID] [--assignment ID] [--workflow classroom.yml]
                   feedback list --data DIR [--lecture ID] [--assignment ID] [--latest] [--format json|table]
+                    [--moodle-output FILE.csv --moodle-users FILE.json --moodle-max NUMBER
+                     [--grade-item TEXT] [--source-max NUMBER] [--offset NUMBER] [--decimals NUMBER]]
                   feedback show --data DIR --repository-id NUMBER --run-id NUMBER --attempt NUMBER
                   collect --manifest FILE --results DIR --output FILE.csv
+                  moodle export --input FILE.csv --output FILE.csv --source-max NUMBER --moodle-max NUMBER --grade-item TEXT
+                    [--username-column TEXT] [--points-column TEXT] [--offset NUMBER] [--decimals NUMBER]
                   workspace (--check | --write) [--modules FILE] [--repositories-root DIR] [--output DIR]
                   registration check --data DIR
                   registration import --data DIR
@@ -441,7 +520,12 @@ public final class ClassroomCli {
 
                 Feedback sync downloads student-workflow artifacts into private DIR/feedback.db; list/show are read-only.
                 Feedback list --latest shows the newest known run and its last attempt per enrolled student/assignment.
+                Its Moodle export requires --latest, --lecture and --assignment plus a student-ID-to-Moodle-username JSON map.
+                Export uses each result's maximum; --source-max optionally checks it. Missing scores are omitted, never replaced by older grades.
                 Scoring is feedback only. The collect command requires trusted final-runner results.
+                Moodle export scales an existing username/points CSV for manual gradebook import; no Moodle credentials are needed.
+                Defaults: columns username/points, offset 0, decimals 2. Output must be a new file. Blank points are omitted.
+                Moodle gradebook import overrides activity grades; it does not sync the Assignment grading workflow.
                 Registration configuration lives in DIR/lectures; its database is DIR/classroom.db.
                 Check and listing commands are read-only. Import pins supplied GitHub usernames using read-only API calls.
                 Delete removes one acceptance only. Stop the service and back up first; GitHub repositories are retained.

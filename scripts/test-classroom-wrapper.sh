@@ -42,6 +42,19 @@ tail_start=$((${#classroom_command[@]} - ${#expected_tail[@]}))
 for ((i=0; i<${#expected_tail[@]}; i++)); do
     [[ "${classroom_command[tail_start+i]}" == "${expected_tail[i]}" ]]
 done
+
+# Export stays a local feedback listing: preserve each value and load no credentials.
+export_options=(--latest --format table --lecture computational-finance
+    --assignment discount-factor-interpolation --moodle-users '/var/lib/finmath-classroom/users map.json'
+    --moodle-output '/var/lib/finmath-classroom/new grades.csv' --moodle-max 10
+    --source-max 100 --grade-item "$literal" --offset 0.5 --decimals 1)
+classroom_build_command feedback list "${export_options[@]}"
+! has_argument --property=EnvironmentFile=/etc/finmath-classroom/classroom.env
+expected_tail=(feedback list "${export_options[@]}" --data /var/lib/finmath-classroom)
+tail_start=$((${#classroom_command[@]} - ${#expected_tail[@]}))
+for ((i=0; i<${#expected_tail[@]}; i++)); do
+    [[ "${classroom_command[tail_start+i]}" == "${expected_tail[i]}" ]]
+done
 if classroom_build_command registration list --data /tmp/other 2>/dev/null; then exit 1; fi
 if classroom_build_command feedback sync --data=/tmp/other 2>/dev/null; then exit 1; fi
 if classroom_build_command serve --help 2>/dev/null; then exit 1; fi

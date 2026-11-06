@@ -65,6 +65,7 @@ and year rollover remain [planned work](todo.md).
 | SQLite persistence and administrative CLI | Implemented |
 | Optional Moodle LTI 1.3 resource launches | Implemented; pilot with your Moodle installation |
 | Local JUnit feedback scoring and trusted-result CSV collection | Implemented; operate on supplied files |
+| Moodle gradebook CSV export with point scaling | Implemented; from latest feedback with an explicit username mapping, or supplied username/points files |
 | Shared Maven/JUnit feedback action and versioned artifacts | Implemented |
 | Automatic feedback artifact collection | Implemented as a CLI and optional systemd timer |
 | Verified server releases and manual server updater | Implemented |
@@ -114,7 +115,7 @@ keep their own Git histories and builds.
 - [Ubuntu/Plesk deployment](docs/deployment.md): private service setup, HTTPS,
   initial import, verification, release updates and backups.
 - [Other tools](docs/tools.md): local scoring, CSV collection and optional
-  Maven/IntelliJ workspace generation.
+  Maven/IntelliJ workspace generation, plus [Moodle grade import](docs/tools.md#moodle-grade-import).
 - [Autograding migration](docs/autograding.md): replacement GitHub action, rubric
   conversion, standardized uploaded results and automatic feedback collection.
 - [Development notes and history](docs/development.md): architecture, conventions

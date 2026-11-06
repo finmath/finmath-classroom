@@ -354,6 +354,11 @@ sudo classroom feedback list --lecture numerical-methods
 `classroom --help` lists the supported commands. Additional selectors work as in
 the Java CLI; omit `--data`, which is fixed to `/var/lib/finmath-classroom`.
 Feedback commands require the JAR version that implements them.
+The existing helper also forwards the optional
+[`feedback list --latest --moodle-output` options](tools.md#export-latest-feedback-directly)
+without reinstalling it. The mapping file and new CSV must be accessible to
+`finmath-classroom` under `/var/lib/finmath-classroom`; these exports run without
+the credential file and do not upload grades to Moodle.
 
 The helper starts a short-lived systemd service as `finmath-classroom`, loads the
 root-only environment file only for `registration import`, `registration reconcile`
