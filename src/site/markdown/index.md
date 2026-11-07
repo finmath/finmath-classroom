@@ -1,14 +1,15 @@
-# finmath classroom
+# classroom
 
 **A general-purpose classroom solution for programming assignments.**
 
-finmath classroom is a self-hosted Java application for administering programming
+classroom is a self-hosted Java application for administering programming
 assignments on GitHub. It provides student registration, private assignment
 repositories, automated test feedback and collection of results.
 
 The project was created as a free, flexible alternative to GitHub Classroom.
 Instructors can create assignments for their own subjects by providing template
-repositories, instructions and tests.
+repositories, instructions and tests. The setup is independent of the subject
+taught and does not require finmath libraries.
 
 [Get started](https://github.com/finmath/finmath-classroom/blob/main/GETTING_STARTED.md)
 · [Example assignment](demo.html)

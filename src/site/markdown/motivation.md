@@ -1,6 +1,6 @@
 # Motivation
 
-The aim of finmath classroom is to provide a powerful, flexible and free
+The aim of classroom is to provide a powerful, flexible and free
 alternative to GitHub Classroom for administering programming assignments.
 
 ## Background
@@ -10,7 +10,7 @@ assignments use Java and JUnit tests to give students feedback on their
 implementations. GitHub Classroom provided the registration and repository setup
 for this workflow.
 
-finmath classroom is a general-purpose solution for administering programming
+classroom is a general-purpose solution for administering programming
 assignments. Instructors define the subject and content through their own
 template repositories, instructions and tests. Registration, repository creation
 and result collection apply across subjects.
@@ -31,7 +31,7 @@ The main requirements were:
 - Control over course configuration and stored registration data.
 - The ability to extend the service, for example with Moodle integration.
 
-finmath classroom implements these functions in a Java application with a SQLite
+classroom implements these functions in a Java application with a SQLite
 database, a web interface for registration and command-line tools for
 administration. Moodle LTI launches are supported; grade return remains planned.
 

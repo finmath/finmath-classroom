@@ -1,7 +1,7 @@
 # Getting started
 
-This walkthrough starts with an offline local trial, then an optional test against
-GitHub. Run commands from the repository root using Bash. You need JDK 17 or newer
+This walkthrough introduces classroom with an offline local trial, then an optional
+test against GitHub. Run commands from the repository root using Bash. You need JDK 17 or newer
 and Maven 3.6.3 or newer. Full configuration details are in the
 [registration reference](docs/registration.md).
 

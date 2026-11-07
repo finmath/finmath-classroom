@@ -1,8 +1,13 @@
 # Offline tools and optional workspace
 
-These commands run from the repository root using the JAR built by `mvn -B -ntp verify`.
+These classroom commands run from the repository root using the JAR built by
+`mvn -B -ntp verify`.
 They do not start Spring or an HTTP server. See [Getting started](../GETTING_STARTED.md)
 for registration and [the registration reference](registration.md) for administration.
+
+The examples use numerical methods and computational finance assignments; replace
+the course and assignment IDs with your own. The executable JAR, service account
+and installation paths still use `finmath-classroom`.
 
 ## JUnit feedback scoring
 
@@ -160,6 +165,33 @@ already forwards them, so no helper reinstall or database migration is needed.
 Students whose Moodle identities are already recorded do not need to register again.
 For local use, replace `sudo classroom` with
 `java -jar target/finmath-classroom.jar` and add `--data DIR`.
+
+### Warm-up: whole Moodle points
+
+For `computational-finance/quadratic-equation`, scale the total GitHub score out of
+4 to Moodle points out of 2, then round halves upward to a whole point:
+
+| GitHub points | Moodle points |
+| ---: | ---: |
+| 0 | 0 |
+| 1 | 1 |
+| 2 | 1 |
+| 3 | 2 |
+| 4 | 2 |
+
+```sh
+sudo classroom feedback list --latest --format table \
+  --lecture computational-finance --assignment quadratic-equation \
+  --source-max 4 --moodle-max 2 --decimals 0 \
+  --moodle-output /var/lib/finmath-classroom/warmup-grades-rounded.csv
+```
+
+Round the **total score after scaling**, rather than rounding individual rubric
+parts. For these integer GitHub scores, half-up rounding gives the same result as
+rounding the scaled score upward. These options apply the warm-up rule to this
+export; the command's default remains two decimal places. Use a new output filename
+when repeating the export. Import `userid` as **User ID** using the
+[Moodle import steps](#import-the-exported-csv).
 
 ### Optional username mapping
 

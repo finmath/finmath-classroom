@@ -1,11 +1,16 @@
-# finmath-classroom
+# classroom
 
-A general-purpose, self-hosted Java service for running programming assignments
-on GitHub. Instructors define their own assignments through template repositories,
+classroom is a general-purpose, self-hosted Java service for running programming
+assignments on GitHub. Instructors define their own assignments through template repositories,
 instructions and tests. Students accept an assignment through a web page, connect
 their GitHub account, and receive a private repository created from the template.
 Instructors manage courses, assignment settings and registrations through files
 and command-line tools.
+
+The setup is independent of the subject taught and does not require finmath
+libraries. The Git repository remains `finmath/finmath-classroom`, and the Maven
+artifact and executable JAR retain the `finmath-classroom` name. Existing Moodle
+integration names, service names and installation paths also remain unchanged.
 
 The project provides the registration and repository-provisioning part of a
 GitHub Classroom alternative, with shared test feedback and automatic downloading

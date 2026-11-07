@@ -159,7 +159,7 @@ Create a [fine-grained personal access token](https://github.com/settings/person
 in your personal GitHub settings: **Developer settings → Personal access tokens →
 Fine-grained tokens → Generate new token**.
 
-1. Choose a name such as `finmath-classroom-pilot` and an expiration, such as 30 days.
+1. Choose a name such as `classroom-pilot` and an expiration, such as 30 days.
 2. Set **Resource owner** to your teaching organization.
 3. Select **All repositories** so the token covers the template and future student
    repositories. Selecting only the template would exclude the generated repositories.

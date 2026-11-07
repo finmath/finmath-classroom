@@ -12,7 +12,7 @@
   <groupId>org.finmath</groupId>
   <artifactId>finmath-classroom</artifactId>
   <version>0.1.0-SNAPSHOT</version>
-  <name>finmath classroom</name>
+  <name>classroom</name>
   <description>Self-hosted programming assignments with GitHub sign-in, private repositories and automatic test feedback</description>
   <url>https://www.finmath.net/finmath-classroom/</url>
   <inceptionYear>2026</inceptionYear>

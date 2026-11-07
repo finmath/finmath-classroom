@@ -1,7 +1,7 @@
 # Project site
 
-The public site at <https://www.finmath.net/finmath-classroom/> introduces the
-project, its motivation and an example assignment with illustrative test results.
+The public site at <https://www.finmath.net/finmath-classroom/> introduces
+classroom, its motivation and an example assignment with illustrative test results.
 Operational reference documentation remains in this repository and is linked
 from the site.
 
@@ -16,14 +16,15 @@ bash scripts/test-site.sh
 ```
 
 Maven Site Plugin renders Markdown from `src/site/markdown` into `target/site`,
-using Maven Doxia and the Fluido skin, as in the other finmath projects. A shared
-stylesheet provides the project colors and responsive layout. Open
+using Maven Doxia and the Fluido skin. A shared stylesheet provides the project
+colors and responsive layout. Open
 `target/site/index.html` in a browser to preview it. After deleting or renaming
 pages, or changing the Maven site configuration, run `mvn -B -ntp clean site` to
 remove obsolete generated output and rebuild every page.
 
 | Source | Purpose |
 | --- | --- |
+| `pom.xml` | Project display name and public site URL; artifact coordinates are independent of the display name |
 | `src/site/site.xml` | Maven skin, navigation and site metadata |
 | `src/site/markdown/*.md` | Overview, motivation and example content |
 | `src/site/resources/css/site.css` | Shared responsive layout and typography |
