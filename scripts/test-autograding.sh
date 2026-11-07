@@ -112,7 +112,7 @@ run_feedback() {
 }
 
 check_result() {
-  if [[ "$script_exit" != 0 || "$report_exit" != "$3" ]]; then
+  if [[ "$script_exit" != "$3" || "$report_exit" != "$3" ]]; then
     cat "$suite/output.log" >&2
     echo "Unexpected action outcome: script=$script_exit, report=$report_exit" >&2
     exit 1

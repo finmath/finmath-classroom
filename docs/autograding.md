@@ -262,8 +262,9 @@ identifies the submitted rubric; it does not prove an instructor approved it.
 Student-controlled metadata/reports are claims, not authentication or final grades.
 The existing `collect` command accepts a different, trusted final-result format.
 
-The action attempts upload before returning the grading failure status, so failed
-tests still produce feedback. Server synchronization polls for recoverable
+GitHub marks the test-and-feedback step as failed (red) when tests fail or feedback
+reports an error. The action still attempts to upload generated feedback unless
+the workflow is cancelled. Server synchronization polls for recoverable
 artifacts, independently of workflow success or a classroom server outage.
 Choose retention long enough for the expected outage and recovery window; an
 artifact deleted or expired before collection cannot be recovered by polling.

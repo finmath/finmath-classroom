@@ -82,4 +82,5 @@ if [[ ! -s "$results/result.json" || ! -s "$results/summary.md" ]]; then
 fi
 cat "$results/summary.md" >> "$GITHUB_STEP_SUMMARY"
 printf 'result-path=%s\nexit-code=%s\n' "$results/result.json" "$report_exit" >> "$GITHUB_OUTPUT"
-# The composite action uploads the result before applying this outcome to the job.
+# Fail this step where the test logs are visible; the upload step still runs after failure.
+exit "$report_exit"

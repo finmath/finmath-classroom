@@ -77,10 +77,3 @@ runs:
         path: ${{ steps.feedback.outputs.result-path }}
         retention-days: ${{ inputs.retention-days }}
         if-no-files-found: error
-
-    - name: Set feedback outcome
-      if: ${{ !cancelled() && steps.feedback.outputs.exit-code != '' }}
-      shell: bash
-      env:
-        FEEDBACK_EXIT_CODE: ${{ steps.feedback.outputs.exit-code }}
-      run: exit "$FEEDBACK_EXIT_CODE"
