@@ -63,7 +63,22 @@ with an unavailable score. Enrollments without a stored attempt are also shown.
 Run `feedback sync` first for a fresher local snapshot. The default listing remains
 all-history JSON; `--latest` also works with JSON, and `--format table` can display
 the full history. Deploy the updated JAR to use these options; the existing server
-helper forwards them without reinstalling it, and no database migration is needed.
+helper forwards them without reinstalling it.
+
+The `COMMIT_TIME_UTC` column shows the timestamp of the displayed commit, in UTC
+(for example, `2026-11-12T22:59:00Z`). JSON listings expose the same value as
+`commitTimestamp`. It comes from GitHub's workflow-run `head_commit.timestamp`,
+not the workflow start or feedback download time. A missing timestamp is shown
+as `-` (JSON `null`). The next `feedback sync` automatically upgrades an older
+feedback database and fills missing timestamps for known runs where GitHub
+provides them, including already collected results; listing alone stays read-only.
+
+Use this timestamp for a manual comparison with a deadline in the same time zone.
+Git commit timestamps are supplied by the commit creator, so they do not prove
+when GitHub received a submission. The row refers to the latest collected workflow
+run, not necessarily the current branch head; no automatic late/on-time decision
+is made.
+
 Add the [Moodle export options](#export-latest-feedback-directly) to display this
 table and write a scaled import CSV in the same command.
 

@@ -246,6 +246,41 @@ class GitHubFeedbackClientTest {
     }
 
     @Test
+    void readsCommitTimestampFromRunsAndSpecificAttempts() throws IOException {
+        String run = withHeadCommit("{\"id\":\"" + SHA.toUpperCase(java.util.Locale.ROOT)
+                + "\",\"timestamp\":\"2026-10-01T13:55:00+02:00\"}");
+        reply(200, page("workflow_runs", 1, run));
+        var listed = github.runs(REPOSITORY, "feedback.yml").get(0);
+        assertEquals(Instant.parse("2026-10-01T11:55:00Z"), listed.commitTimestamp());
+        assertEquals(Instant.parse("2026-10-01T12:00:00Z"), listed.createdAt());
+        reply(200, run);
+        assertEquals(listed.commitTimestamp(), github.attempt(REPOSITORY, 11, 1).commitTimestamp());
+    }
+
+    @Test
+    void missingCommitTimestampRemainsUnknown() throws IOException {
+        for (String run : List.of(run(11, 1), withHeadCommit("null"), withHeadCommit("{}"),
+                withHeadCommit("{\"id\":\"" + SHA + "\",\"timestamp\":null}"))) {
+            reply(200, page("workflow_runs", 1, run));
+            assertNull(github.runs(REPOSITORY, "feedback.yml").get(0).commitTimestamp());
+        }
+    }
+
+    @Test
+    void rejectsMalformedOrMismatchedCommitTimestampMetadata() {
+        for (String metadata : List.of("42", "[]",
+                "{\"id\":\"" + "b".repeat(40) + "\",\"timestamp\":\"2026-10-01T11:55:00Z\"}",
+                "{\"timestamp\":\"2026-10-01T11:55:00Z\"}",
+                "{\"id\":\"" + SHA + "\",\"timestamp\":42}",
+                "{\"id\":\"" + SHA + "\",\"timestamp\":\"private-invalid-time\"}",
+                "{\"id\":\"" + SHA + "\",\"timestamp\":\"2026-10-01T11:55:00\"}")) {
+            reply(200, page("workflow_runs", 1, withHeadCommit(metadata)));
+            Failure failure = assertThrows(Failure.class, () -> github.runs(REPOSITORY, "feedback.yml"));
+            assertEquals("Invalid GitHub feedback metadata", failure.getMessage());
+        }
+    }
+
+    @Test
     void unrelatedPullRequestAndTagRunsDoNotBlockPushCollectionOrPagination() throws IOException {
         String pullRequest = run(11, 1).replace("\"event\":\"push\"", "\"event\":\"pull_request\"")
                 .replace("\"head_branch\":\"main\"", "\"head_branch\":null")
@@ -522,6 +557,11 @@ class GitHubFeedbackClientTest {
                 + ",\"head_branch\":\"main\",\"head_sha\":\"" + SHA + "\",\"event\":\"push\",\"status\":\"completed\","
                 + "\"conclusion\":\"success\",\"path\":\".github/workflows/feedback.yml\",\"workflow_id\":99,"
                 + "\"created_at\":\"2026-10-01T12:00:00Z\"}";
+    }
+
+    private static String withHeadCommit(String metadata) {
+        String run = run(11, 1);
+        return run.substring(0, run.length() - 1) + ",\"head_commit\":" + metadata + "}";
     }
 
     private static String artifact(long id) {

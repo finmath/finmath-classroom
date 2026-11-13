@@ -96,6 +96,8 @@ public final class FeedbackSync {
                         if (artifacts == null) artifacts = github.artifacts(enrollment.repository(), run.id());
                         collect(enrollment, current, artifacts, counts);
                     }
+                    // The listed run's commit also belongs to its older attempts, whose responses may omit the timestamp.
+                    store.recordCommitTimestamp(run);
                 }
                 store.checked(enrollment, counts.errors > previousErrors || counts.unavailable > previousUnavailable ? "attention" : "ok", accessProblem, clock.instant());
             } catch (Failure failure) {
@@ -238,7 +240,7 @@ public final class FeedbackSync {
     private void recordUnavailableAttempt(Enrollment enrollment, Run run, int attempt, String problem) throws IOException {
         // Keep the known run identity, without attributing the latest attempt's outcome to an older one.
         Run unavailable = new Run(run.id(), attempt, run.repositoryId(), run.repository(), run.branch(), run.commit(),
-                run.event(), "unknown", null, run.workflowPath(), run.workflowId(), run.createdAt());
+                run.event(), "unknown", null, run.workflowPath(), run.workflowId(), run.createdAt(), run.commitTimestamp());
         record(enrollment, unavailable, "unavailable", problem, null);
     }
 

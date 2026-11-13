@@ -12,9 +12,19 @@ public interface FeedbackSource {
     /** Verified GitHub account identity and its base repository permission. */
     record Access(long userId, String login, String permission) { }
 
-    /** workflowPath is the canonical file path, without GitHub's optional @ref suffix. */
+    /**
+     * workflowPath is the canonical file path, without GitHub's optional @ref suffix.
+     * commitTimestamp is GitHub's head_commit.timestamp, when available, not the workflow or push time.
+     */
     record Run(long id, int attempt, long repositoryId, String repository, String branch, String commit,
-            String event, String status, String conclusion, String workflowPath, long workflowId, Instant createdAt) { }
+            String event, String status, String conclusion, String workflowPath, long workflowId, Instant createdAt,
+            Instant commitTimestamp) {
+        public Run(long id, int attempt, long repositoryId, String repository, String branch, String commit,
+                String event, String status, String conclusion, String workflowPath, long workflowId, Instant createdAt) {
+            this(id, attempt, repositoryId, repository, branch, commit, event, status, conclusion,
+                    workflowPath, workflowId, createdAt, null);
+        }
+    }
 
     record Artifact(long id, String name, long runId, long repositoryId, String commit,
             boolean expired, long sizeBytes, String digest) { }

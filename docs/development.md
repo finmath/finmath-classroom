@@ -82,15 +82,17 @@ publish those solutions incidentally.
 - Feedback from student-controlled workflows, POMs, tests or reports is untrusted.
   Final grading requires trusted tests/build configuration and an isolated runner.
   Never execute student code in the administration process or with its credentials.
-- Feedback collection uses a separate `feedback.db` schema version 1. It may update
+- Feedback collection uses a separate `feedback.db` schema version 2. A writable
+  open migrates version 1 by adding a nullable commit timestamp; read-only opens
+  still support version 1 without modifying it. It may update
   confirmed invitation status in the existing registration database without
   migrating it. Listings remain read-only. Received results are immutable
   per numeric repository ID, run ID and attempt; failures cannot erase a result.
   Parse bounded archives without extraction, verify run correlation, and keep missing
   results distinct from a failed test with a numeric score. HTTP operations must not
   hold SQLite write transactions or forward credentials to artifact storage.
-  Repository checks can have status `deferred` after a rate limit. This existing
-  version-1 table stores the resume marker without a schema migration; a later
+  Repository checks can have status `deferred` after a rate limit. The existing
+  repository-check table stores the resume marker; a later
   scoped sync prioritizes matching interrupted enrollments. Latest listings show
   a deferred check without any result as unavailable. Resume is per repository,
   not per page/run within its history.
@@ -99,6 +101,11 @@ publish those solutions incidentally.
   or invalid latest results and enrollments without attempts; never replace them
   with older scores. Listing remains local and read-only; it does not establish
   the current branch head or a final grade.
+  The displayed `commitTimestamp` comes from matching workflow-run head-commit
+  metadata, normalized to UTC, never from workflow creation or collection time.
+  Sync may fill a missing timestamp for an existing matching run/commit without
+  replacing a received result or its provenance. Commit timestamps do not establish
+  server receipt time or enforce deadlines.
 - Optional Moodle CSV export from `feedback list --latest` requires one lecture and
   assignment. By default, use the current saved Moodle identity's numeric subject
   as `userid`; require the same Moodle issuer and unique positive IDs for exported

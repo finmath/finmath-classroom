@@ -181,6 +181,8 @@ class ClassroomCliTest {
         assertEquals(2, table.lines().count());
         assertTrue(table.startsWith("LECTURE"));
         assertTrue(table.contains("POINTS"));
+        assertTrue(table.contains("COMMIT_TIME_UTC"));
+        assertTrue(table.lines().skip(1).findFirst().orElseThrow().stripTrailing().endsWith("-"));
         assertTrue(table.contains("not_collected"));
         assertTrue(table.contains("Alice Example  [31m"));
         assertFalse(table.contains(Character.toString(27)));
@@ -201,8 +203,9 @@ class ClassroomCliTest {
         var store = new FeedbackStore(directory, true);
         var missing = new FeedbackSource.Run(456, 1, 101, enrollment.repository(), "main", "a".repeat(40),
                 "push", "completed", "failure", ".github/workflows/classroom.yml", 77, time);
+        var commitTime = time.minusSeconds(120);
         var received = new FeedbackSource.Run(456, 2, 101, enrollment.repository(), "main", "a".repeat(40),
-                "push", "completed", "failure", ".github/workflows/classroom.yml", 77, time);
+                "push", "completed", "failure", ".github/workflows/classroom.yml", 77, time, commitTime);
         var artifact = new FeedbackSource.Artifact(999, "classroom-feedback-456-2", 456, 101, "a".repeat(40), false, 1, null);
         store.record(enrollment, missing, "missing", "No artifact", null, null, null, time);
         store.record(enrollment, received, "received", null, artifact, new byte[]{1}, result, time);
@@ -217,12 +220,16 @@ class ClassroomCliTest {
         assertTrue(table.contains("received"));
         assertTrue(table.contains("failed"));
         assertTrue(table.contains("aaaaaaaaaaaa"));
+        assertTrue(table.contains("COMMIT_TIME_UTC"));
+        assertTrue(table.contains("2026-10-19T11:58:00Z"));
+        assertFalse(table.contains(time.toString()));
         assertArrayEquals(feedbackBytes, Files.readAllBytes(directory.resolve("feedback.db")));
         output.reset();
         assertEquals(0, ClassroomCli.run(new String[]{"feedback", "list", "--data", directory.toString(), "--latest"}, new PrintStream(output), System.err));
         var latest = JsonFiles.MAPPER.readTree(output.toString(StandardCharsets.UTF_8));
         assertEquals(1, latest.path("results").size());
         assertEquals(2, latest.path("results").get(0).path("runAttempt").asInt());
+        assertEquals(commitTime.toString(), latest.path("results").get(0).path("commitTimestamp").asString());
         assertFalse(latest.path("authoritative").asBoolean());
         output.reset();
         assertEquals(0, ClassroomCli.run(new String[]{"feedback", "list", "--data", directory.toString()}, new PrintStream(output), System.err));
@@ -237,6 +244,8 @@ class ClassroomCliTest {
         assertTrue(table.contains("457"));
         assertTrue(table.contains("missing"));
         assertFalse(table.contains("15/22"));
+        assertFalse(table.contains(commitTime.toString()));
+        assertTrue(table.lines().skip(1).findFirst().orElseThrow().stripTrailing().endsWith("-"));
     }
 
     @Test void scoreRejectsParentAliasesIntoReports() throws Exception {

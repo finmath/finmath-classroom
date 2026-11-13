@@ -324,7 +324,21 @@ public final class GitHubFeedbackClient implements FeedbackSource {
         return new Run(positive(value, "id"), (int) attempt, positive(repository, "id"), name,
                 branch, commit, text(value, "event", 64),
                 text(value, "status", 64), nullableText(value, "conclusion", 64), workflowPath(value, branch, commit),
-                positive(value, "workflow_id"), created);
+                positive(value, "workflow_id"), created, commitTimestamp(value, commit));
+    }
+
+    private static Instant commitTimestamp(JsonNode value, String commit) throws Failure {
+        JsonNode headCommit = value.path("head_commit");
+        if (headCommit.isNull() || headCommit.isMissingNode()) return null;
+        if (!headCommit.isObject()) throw invalidMetadata();
+        String timestamp = nullableText(headCommit, "timestamp", 64);
+        if (timestamp == null) return null;
+        if (!sha(headCommit, "id").equalsIgnoreCase(commit)) throw invalidMetadata();
+        try {
+            return Instant.parse(timestamp);
+        } catch (RuntimeException exception) {
+            throw invalidMetadata();
+        }
     }
 
     private static String workflowPath(JsonNode value, String branch, String commit) throws Failure {

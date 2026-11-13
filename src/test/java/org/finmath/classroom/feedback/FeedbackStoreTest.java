@@ -43,7 +43,7 @@ class FeedbackStoreTest {
         byte[] originalRegistration = Files.readAllBytes(registration);
         FeedbackStore store = new FeedbackStore(directory, true);
         JsonNode result = result("passed", "7");
-        FeedbackSource.Run run = run(123, 2, "a".repeat(40));
+        FeedbackSource.Run run = withTimestamp(run(123, 2, "a".repeat(40)), now.minusSeconds(120));
         store.record(enrollment, run, "received", null, artifact(run), archive, result, now);
         store.checked(enrollment, "received", null, now);
 
@@ -63,6 +63,7 @@ class FeedbackStoreTest {
         assertEquals(123L, row.get("runId"));
         assertEquals(2, row.get("runAttempt"));
         assertEquals("a".repeat(40), row.get("commit"));
+        assertEquals(now.minusSeconds(120).toString(), row.get("commitTimestamp"));
         assertEquals("main", row.get("branch"));
         assertEquals("push", row.get("event"));
         assertEquals("completed", row.get("runStatus"));
@@ -248,12 +249,65 @@ class FeedbackStoreTest {
         Files.delete(database);
         new FeedbackStore(directory, true);
         try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database); Statement statement = connection.createStatement()) {
-            statement.execute("UPDATE schema_version SET version=2");
+            statement.execute("UPDATE schema_version SET version=3");
         }
         bytes = Files.readAllBytes(database);
         assertThrows(IOException.class, () -> new FeedbackStore(directory, true));
         assertThrows(IOException.class, () -> new FeedbackStore(directory, false));
         assertArrayEquals(bytes, Files.readAllBytes(database));
+    }
+
+    @Test void legacyDatabaseIsReadableWithoutModificationAndMigratesOnlyOnWritableOpen() throws Exception {
+        FeedbackStore store = new FeedbackStore(directory, true);
+        FeedbackSource.Run run = run(123, 1, "a".repeat(40));
+        JsonNode accepted = result("passed", "7");
+        store.record(enrollment, run, "received", null, artifact(run), archive, accepted, now);
+        Path database = directory.resolve("feedback.db");
+        try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database); Statement statement = connection.createStatement()) {
+            statement.execute("ALTER TABLE feedback_results DROP COLUMN commit_timestamp");
+            statement.execute("UPDATE schema_version SET version=1");
+        }
+        byte[] original = Files.readAllBytes(database);
+        var modified = Files.getLastModifiedTime(database);
+        FeedbackStore readonly = new FeedbackStore(directory, false);
+        Map<String, Object> oldRow = readonly.list(null, null).get(0);
+        assertTrue(oldRow.containsKey("commitTimestamp"));
+        assertNull(oldRow.get("commitTimestamp"));
+        assertEquals(accepted, readonly.result(12, 123, 1));
+        assertArrayEquals(original, Files.readAllBytes(database));
+        assertEquals(modified, Files.getLastModifiedTime(database));
+
+        FeedbackStore migrated = new FeedbackStore(directory, true);
+        assertEquals(oldRow, migrated.list(null, null).get(0));
+        migrated.recordCommitTimestamp(withTimestamp(run, now.minusSeconds(120)));
+        assertEquals(now.minusSeconds(120).toString(), new FeedbackStore(directory, false).list(null, null).get(0).get("commitTimestamp"));
+        assertEquals(accepted, migrated.result(12, 123, 1));
+        try(Connection connection = DriverManager.getConnection("jdbc:sqlite:" + database); Statement statement = connection.createStatement();
+                ResultSet rows = statement.executeQuery("SELECT version FROM schema_version")) {
+            assertTrue(rows.next());
+            assertEquals(2, rows.getInt(1));
+        }
+    }
+
+    @Test void timestampBackfillMatchesRepositoryRunAndCommitAndPreservesReceivedData() throws Exception {
+        FeedbackStore store = new FeedbackStore(directory, true);
+        FeedbackSource.Run original = run(123, 1, "a".repeat(40));
+        JsonNode accepted = result("passed", "7");
+        store.record(enrollment, original, "received", null, artifact(original), archive, accepted, now);
+        Map<String, Object> expected = new java.util.LinkedHashMap<>(store.list(null, null).get(0));
+        store.recordCommitTimestamp(withTimestamp(run(999, 1, original.commit()), now));
+        store.recordCommitTimestamp(withTimestamp(run(123, 1, "b".repeat(40)), now));
+        store.recordCommitTimestamp(new FeedbackSource.Run(123, 1, 99, "org/other", "main", original.commit(),
+                "push", "completed", "success", original.workflowPath(), 9, original.createdAt(), now));
+        assertEquals(expected, store.list(null, null).get(0));
+
+        store.recordCommitTimestamp(withTimestamp(run(123, 2, original.commit().toUpperCase()), now.minusSeconds(120)));
+        expected.put("commitTimestamp", now.minusSeconds(120).toString());
+        assertEquals(expected, store.list(null, null).get(0));
+        store.recordCommitTimestamp(withTimestamp(original, now));
+        assertEquals(expected, store.list(null, null).get(0));
+        assertEquals(accepted, store.result(12, 123, 1));
+        assertThrows(IOException.class, () -> new FeedbackStore(directory, false).recordCommitTimestamp(withTimestamp(original, now)));
     }
 
     @Test void failedRecordRollsBackAndASecondConnectionCanRetry() throws Exception {
@@ -350,6 +404,11 @@ class FeedbackStoreTest {
     private FeedbackSource.Run run(long id, int attempt, String commit) {
         return new FeedbackSource.Run(id, attempt, 12, "org/repository-12", "main", commit, "push", "completed", "success",
                 ".github/workflows/feedback.yml", 9, now.minusSeconds(60));
+    }
+
+    private static FeedbackSource.Run withTimestamp(FeedbackSource.Run run, Instant timestamp) {
+        return new FeedbackSource.Run(run.id(), run.attempt(), run.repositoryId(), run.repository(), run.branch(), run.commit(),
+                run.event(), run.status(), run.conclusion(), run.workflowPath(), run.workflowId(), run.createdAt(), timestamp);
     }
 
     private static FeedbackSource.Artifact artifact(FeedbackSource.Run run) {

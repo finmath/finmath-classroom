@@ -49,6 +49,7 @@ public final class FeedbackStore {
                 repository TEXT NOT NULL,
                 branch TEXT NOT NULL,
                 commit_sha TEXT NOT NULL,
+                commit_timestamp TEXT,
                 event TEXT NOT NULL,
                 run_status TEXT NOT NULL,
                 conclusion TEXT,
@@ -72,13 +73,15 @@ public final class FeedbackStore {
     private static final String RECORD = """
             INSERT INTO feedback_results (
                 repository_id,run_id,run_attempt,lecture_id,assignment_id,student_id,name,github_id,github_login,identity_source,
-                repository,branch,commit_sha,event,run_status,conclusion,workflow_path,workflow_id,created_at,
+                repository,branch,commit_sha,commit_timestamp,event,run_status,conclusion,workflow_path,workflow_id,created_at,
                 collection_status,problem,received_at,last_checked_at,artifact_id,artifact_name,artifact_digest,archive_sha256,result_json
-            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+            ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ON CONFLICT(repository_id,run_id,run_attempt) DO UPDATE SET
                 lecture_id=excluded.lecture_id,assignment_id=excluded.assignment_id,student_id=excluded.student_id,
                 name=excluded.name,github_id=excluded.github_id,github_login=excluded.github_login,identity_source=excluded.identity_source,
                 repository=excluded.repository,branch=excluded.branch,commit_sha=excluded.commit_sha,event=excluded.event,
+                commit_timestamp=CASE WHEN feedback_results.commit_sha=excluded.commit_sha COLLATE NOCASE
+                    THEN COALESCE(feedback_results.commit_timestamp,excluded.commit_timestamp) ELSE excluded.commit_timestamp END,
                 run_status=excluded.run_status,conclusion=excluded.conclusion,workflow_path=excluded.workflow_path,
                 workflow_id=excluded.workflow_id,created_at=excluded.created_at,collection_status=excluded.collection_status,
                 problem=excluded.problem,received_at=excluded.received_at,last_checked_at=excluded.last_checked_at,
@@ -89,6 +92,7 @@ public final class FeedbackStore {
 
     private final String jdbcUrl;
     private final boolean readOnly;
+    private final boolean hasCommitTimestamp;
 
     /** Only an explicit writable open creates feedback.db; a read-only open never initializes it. */
     public FeedbackStore(Path dataRoot, boolean initialize) throws IOException {
@@ -127,7 +131,7 @@ public final class FeedbackStore {
                     }
                     if(empty) {
                         statement.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)");
-                        statement.execute("INSERT INTO schema_version VALUES (1)");
+                        statement.execute("INSERT INTO schema_version VALUES (2)");
                         statement.execute(RESULTS_SCHEMA);
                         statement.execute("CREATE INDEX feedback_assignment ON feedback_results (lecture_id,assignment_id)");
                         statement.execute("""
@@ -148,17 +152,34 @@ public final class FeedbackStore {
                                 """);
                         statement.execute("CREATE TABLE collector_state (id INTEGER PRIMARY KEY CHECK(id=1),deferred_until TEXT NOT NULL)");
                     }
-                    verifySchema(statement);
+                    if(verifySchema(statement) == 1) {
+                        statement.execute("ALTER TABLE feedback_results ADD COLUMN commit_timestamp TEXT");
+                        statement.execute("UPDATE schema_version SET version=2");
+                    }
                 }
                 return null;
             });
+            hasCommitTimestamp = true;
         } else {
             try(Connection connection = connect(); Statement statement = connection.createStatement()) {
-                verifySchema(statement);
+                hasCommitTimestamp = verifySchema(statement) >= 2;
             } catch(SQLException exception) {
                 throw new IOException("Cannot open a compatible feedback database; collect feedback to initialize it.", exception);
             }
         }
+    }
+
+    /** Enriches existing attempts once, only when the stored repository, run and commit match. */
+    public void recordCommitTimestamp(FeedbackSource.Run run) throws IOException {
+        Objects.requireNonNull(run);
+        if(run.commitTimestamp() == null) return;
+        transaction(connection -> {
+            execute(connection, """
+                    UPDATE feedback_results SET commit_timestamp=?
+                    WHERE repository_id=? AND run_id=? AND commit_sha=? COLLATE NOCASE AND commit_timestamp IS NULL
+                    """, run.commitTimestamp().toString(), run.repositoryId(), run.id(), run.commit());
+            return null;
+        });
     }
 
     /** Whether this exact workflow attempt already has a validated, immutable result. */
@@ -192,7 +213,8 @@ public final class FeedbackStore {
         transaction(connection -> {
             execute(connection, RECORD, run.repositoryId(), run.id(), run.attempt(), enrollment.lectureId(), enrollment.assignmentId(),
                     enrollment.studentId(), enrollment.name(), enrollment.githubId(), enrollment.githubLogin(), enrollment.identitySource(),
-                    run.repository(), run.branch(), run.commit(), run.event(), run.status(), run.conclusion(), run.workflowPath(), run.workflowId(),
+                    run.repository(), run.branch(), run.commit(), run.commitTimestamp() == null ? null : run.commitTimestamp().toString(),
+                    run.event(), run.status(), run.conclusion(), run.workflowPath(), run.workflowId(),
                     run.createdAt().toString(), collectionStatus, problem, received ? now.toString() : null, now.toString(),
                     artifact == null ? null : artifact.id(), artifact == null ? null : artifact.name(), artifact == null ? null : artifact.digest(),
                     archiveSha256, json);
@@ -203,7 +225,8 @@ public final class FeedbackStore {
     /** Lists all attempts, newest numeric run/attempt first; commits are historical labels, not branch-head assertions. */
     public List<Map<String, Object>> list(String lectureId, String assignmentId) throws IOException {
         try(Connection connection = connect(); PreparedStatement query = prepare(connection,
-                "SELECT * FROM feedback_results" + FILTER + " ORDER BY run_id DESC,run_attempt DESC,repository_id",
+                "SELECT *" + (hasCommitTimestamp ? "" : ", NULL AS commit_timestamp") + " FROM feedback_results"
+                        + FILTER + " ORDER BY run_id DESC,run_attempt DESC,repository_id",
                 lectureId, lectureId, assignmentId, assignmentId); ResultSet rows = query.executeQuery()) {
             List<Map<String, Object>> results = new ArrayList<>();
             while(rows.next()) {
@@ -212,6 +235,7 @@ public final class FeedbackStore {
                 row.put("runAttempt", rows.getInt("run_attempt"));
                 row.put("branch", rows.getString("branch"));
                 row.put("commit", rows.getString("commit_sha"));
+                row.put("commitTimestamp", rows.getString("commit_timestamp"));
                 row.put("event", rows.getString("event"));
                 row.put("runStatus", rows.getString("run_status"));
                 row.put("conclusion", rows.getString("conclusion"));
@@ -316,13 +340,20 @@ public final class FeedbackStore {
         }
     }
 
-    private static void verifySchema(Statement statement) throws SQLException, IOException {
+    private static int verifySchema(Statement statement) throws SQLException, IOException {
+        int schema;
         try(ResultSet version = statement.executeQuery("SELECT version FROM schema_version")) {
-            if(!version.next() || version.getInt(1) != 1 || version.next()) throw new IOException("Unsupported feedback database version.");
+            if(!version.next()) throw new IOException("Unsupported feedback database version.");
+            schema = version.getInt(1);
+            if((schema != 1 && schema != 2) || version.next()) throw new IOException("Unsupported feedback database version.");
         }
         try(ResultSet ignored = statement.executeQuery("SELECT repository_id,run_id,run_attempt,result_json FROM feedback_results LIMIT 0")) { }
+        if(schema >= 2) {
+            try(ResultSet ignored = statement.executeQuery("SELECT commit_timestamp FROM feedback_results LIMIT 0")) { }
+        }
         try(ResultSet ignored = statement.executeQuery("SELECT repository_id,last_checked_at FROM repository_checks LIMIT 0")) { }
         try(ResultSet ignored = statement.executeQuery("SELECT deferred_until FROM collector_state LIMIT 0")) { }
+        return schema;
     }
 
     private static Map<String, Object> identity(ResultSet rows) throws SQLException {

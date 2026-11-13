@@ -63,7 +63,7 @@ public final class FeedbackListing {
 
     private static Map<String, Object> uncollected(Enrollment enrollment, Map<String, Object> check) {
         Map<String, Object> row = new LinkedHashMap<>();
-        for (String field : List.of("runId", "runAttempt", "branch", "commit", "event", "runStatus", "conclusion",
+        for (String field : List.of("runId", "runAttempt", "branch", "commit", "commitTimestamp", "event", "runStatus", "conclusion",
                 "workflowPath", "workflowId", "createdAt", "receivedAt", "lastCheckedAt", "artifactId",
                 "artifactName", "artifactDigest", "archiveSha256", "feedbackStatus", "score", "maxScore")) {
             row.put(field, null);

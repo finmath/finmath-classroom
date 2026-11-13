@@ -297,7 +297,7 @@ public final class ClassroomCli {
 
     private static void printFeedback(List<Map<String, Object>> results, PrintStream out) {
         List<String[]> rows = new ArrayList<>();
-        rows.add(new String[]{"LECTURE", "ASSIGNMENT", "NAME", "GITHUB", "RUN", "ATTEMPT", "COLLECTION", "RESULT", "POINTS", "COMMIT"});
+        rows.add(new String[]{"LECTURE", "ASSIGNMENT", "NAME", "GITHUB", "RUN", "ATTEMPT", "COLLECTION", "RESULT", "POINTS", "COMMIT", "COMMIT_TIME_UTC"});
         for (Map<String, Object> result : results) {
             String points = feedbackValue(result.get("score"));
             if (result.get("maxScore") != null) points += "/" + feedbackValue(result.get("maxScore"));
@@ -306,7 +306,7 @@ public final class ClassroomCli {
                     feedbackValue(result.get("name")), feedbackValue(result.get("githubLogin")),
                     feedbackValue(result.get("runId")), feedbackValue(result.get("runAttempt")),
                     feedbackValue(result.get("collectionStatus")), feedbackValue(result.get("feedbackStatus")),
-                    points, commit.substring(0, Math.min(commit.length(), 12))});
+                    points, commit.substring(0, Math.min(commit.length(), 12)), feedbackValue(result.get("commitTimestamp"))});
         }
         printTable(rows, out);
     }
@@ -542,6 +542,7 @@ public final class ClassroomCli {
 
                 Feedback sync downloads student-workflow artifacts into private DIR/feedback.db; list/show are read-only.
                 Feedback list --latest shows the newest known run and its last attempt per enrolled student/assignment.
+                COMMIT_TIME_UTC is the displayed commit's timestamp (not push receipt time); sync fills missing timestamps when available.
                 Its Moodle export requires --latest, --lecture and --assignment. Saved Moodle user IDs are used automatically.
                 Import userid as Moodle User ID on the reported Moodle site. Optional --moodle-users selects username mapping instead.
                 Export uses each result's maximum; --source-max optionally checks it. Missing scores are omitted, never replaced by older grades.

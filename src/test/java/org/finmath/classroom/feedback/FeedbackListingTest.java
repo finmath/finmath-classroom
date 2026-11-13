@@ -16,13 +16,16 @@ class FeedbackListingTest {
     @Test void newerRunWinsOverOldRerunOrLaterReceiptAndUsesHighestAttempt() {
         var oldRerun = result(alice, 900, 20, "2026-10-01T12:00:00Z", "received");
         oldRerun.put("receivedAt", "2026-10-20T12:00:00Z");
+        oldRerun.put("commitTimestamp", "2026-10-20T11:59:00Z");
         var firstAttempt = result(alice, 100, 1, "2026-10-02T12:00:00Z", "received");
         var latestAttempt = result(alice, 100, 2, "2026-10-02T12:00:00Z", "received");
+        latestAttempt.put("commitTimestamp", "2026-10-02T11:59:00Z");
         var rows = FeedbackListing.latest(List.of(alice), List.of(latestAttempt, oldRerun, firstAttempt), List.of());
 
         assertEquals(1, rows.size());
         assertEquals(100L, rows.get(0).get("runId"));
         assertEquals(2, rows.get(0).get("runAttempt"));
+        assertEquals("2026-10-02T11:59:00Z", rows.get(0).get("commitTimestamp"));
     }
 
     @Test void timestampsAreComparedAsInstantsAndRunIdBreaksCreationTimeTies() {
@@ -87,7 +90,7 @@ class FeedbackListingTest {
         assertEquals(2, rows.size());
         for (var row : rows) {
             assertEquals("not_collected", row.get("collectionStatus"));
-            for (String field : List.of("runId", "runAttempt", "commit", "score", "maxScore", "feedbackStatus")) {
+            for (String field : List.of("runId", "runAttempt", "commit", "commitTimestamp", "score", "maxScore", "feedbackStatus")) {
                 assertTrue(row.containsKey(field));
                 assertNull(row.get(field));
             }

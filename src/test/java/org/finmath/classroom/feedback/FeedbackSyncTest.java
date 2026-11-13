@@ -64,6 +64,11 @@ class FeedbackSyncTest {
                 state.equals("completed") ? "failure" : null, ".github/workflows/classroom.yml", 55, now.minusSeconds(86400 * 60));
     }
 
+    private Run withTimestamp(Run run, Instant timestamp) {
+        return new Run(run.id(), run.attempt(), run.repositoryId(), run.repository(), run.branch(), run.commit(),
+                run.event(), run.status(), run.conclusion(), run.workflowPath(), run.workflowId(), run.createdAt(), timestamp);
+    }
+
     private byte[] archive(int attempt, boolean wrongCommit) throws Exception {
         ObjectNode result = (ObjectNode) JsonFiles.read(Path.of("examples/grading/result.json"), 1024 * 1024);
         ((ObjectNode) result.path("context")).put("run_attempt", attempt);
@@ -100,6 +105,36 @@ class FeedbackSyncTest {
         assertEquals(1, source.artifactRequests);
         assertEquals(15, new FeedbackStore(directory, false).result(123456, 987654, 1).path("score").asInt());
         assertEquals(0, source.accessRequests);
+    }
+
+    @Test void backfillsReceivedAttemptTimestampsWithoutFetchingOrReplacingFeedback() throws Exception {
+        source.runs = List.of(run(1, "completed"));
+        addArtifact(1, false, false);
+        assertEquals(1, sync().received());
+        var before = new HashMap<>(store.list(null, null).get(0));
+        var accepted = store.result(123456, 987654, 1);
+        Instant timestamp = now.minusSeconds(86400 * 60 + 120);
+        source.runs = List.of(withTimestamp(run(1, "completed"), timestamp));
+        source.artifacts.clear();
+
+        assertEquals(1, sync().alreadyStored());
+        before.put("commitTimestamp", timestamp.toString());
+        assertEquals(before, store.list(null, null).get(0));
+        assertEquals(accepted, store.result(123456, 987654, 1));
+        assertEquals(1, source.downloads);
+        assertEquals(1, source.artifactRequests);
+        assertEquals(0, source.attemptRequests);
+    }
+
+    @Test void newOlderAttemptsUseListedRunTimestampWhenAttemptResponseOmitsIt() throws Exception {
+        Instant timestamp = now.minusSeconds(86400 * 60 + 120);
+        source.runs = List.of(withTimestamp(run(2, "completed"), timestamp));
+        source.attempts.put(1, run(1, "completed"));
+        addArtifact(1, false, false);
+        addArtifact(2, false, false);
+
+        assertEquals(2, sync().received());
+        for (var row : store.list(null, null)) assertEquals(timestamp.toString(), row.get("commitTimestamp"));
     }
 
     @ParameterizedTest
@@ -360,7 +395,7 @@ class FeedbackSyncTest {
     }
 
     @Test void unavailableOldAttemptDoesNotBlockNewerResultAndIsRetriedLater() throws Exception {
-        source.runs = List.of(run(2, "completed"));
+        source.runs = List.of(withTimestamp(run(2, "completed"), now.minusSeconds(86400 * 60 + 120)));
         source.attemptFailure = new FeedbackSource.Failure("private response", 404, null);
         addArtifact(2, false, false);
         var report = sync();
@@ -370,6 +405,7 @@ class FeedbackSyncTest {
         var older = store.list(null, null).get(1);
         assertEquals("unavailable", older.get("collectionStatus"));
         assertEquals("unknown", older.get("runStatus"));
+        assertEquals(now.minusSeconds(86400 * 60 + 120).toString(), older.get("commitTimestamp"));
         assertNull(older.get("conclusion"));
         assertNull(older.get("score"));
         assertFalse(older.toString().contains("private response"));
