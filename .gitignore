@@ -10,3 +10,5 @@ local/
 *.db*
 target/
 *.log
+/pom.xml.releaseBackup
+/release.properties
